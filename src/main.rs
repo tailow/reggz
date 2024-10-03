@@ -1,3 +1,5 @@
+pub mod uci;
+
 fn main() {
-    println!("Hello, world!");
+    uci::input_loop();
 }
