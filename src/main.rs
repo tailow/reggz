@@ -1,7 +1,12 @@
-pub mod debug;
-pub mod engine;
-pub mod uci;
+use engine::Engine;
+
+mod engine;
+mod evaluate;
+mod search;
+mod uci;
 
 fn main() {
-    uci::input_loop();
+    let mut engine: Engine = Engine::new();
+
+    uci::input_loop(&mut engine);
 }
