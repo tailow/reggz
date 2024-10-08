@@ -1,5 +1,6 @@
 use crate::search;
 use shakmaty::{Chess, Position};
+use std::thread;
 
 pub struct Engine {
     pub board: Chess,
@@ -11,7 +12,7 @@ pub struct Engine {
 impl Engine {
     pub fn new() -> Engine {
         Engine {
-            board: Chess::default(),
+            board: Chess::new(),
             debug: false,
             searching: false,
             pondering: false,
@@ -19,7 +20,7 @@ impl Engine {
     }
 
     pub fn search(&self) {
-        search::search()
+        thread::spawn(search::search);
     }
 
     pub fn print_state(&self) {
@@ -50,5 +51,13 @@ impl Engine {
 
     pub fn ponder_hit(&mut self) {}
 
-    pub fn set_option(&self) {}
+    pub fn set_option(&self, name: &str, value: Option<&str>) {
+        if let Some(optional_value) = value {
+            println!("Set option {} with value {}", name, optional_value);
+        } else {
+            println!("Set option {}", name);
+        }
+    }
+
+    pub fn print_info(&self) {}
 }

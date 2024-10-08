@@ -36,8 +36,6 @@ pub fn input_loop(mut engine: &mut Engine) {
             "quit" => quit(),
             _ => continue,
         }
-
-        engine.print_state();
     }
 }
 
@@ -57,8 +55,39 @@ fn isready() {
     println!("readyok")
 }
 
-fn setoption(_args: &[&str], engine: &mut Engine) {
-    engine.set_option();
+fn setoption(args: &[&str], engine: &mut Engine) {
+    if args.get(0) == Some(&"name") {
+        let mut name: String = String::new();
+        let mut value: String = String::new();
+        let mut first_value_index: usize = 0;
+
+        let tokens = match args.get(1..) {
+            Some(t) => t,
+            _ => return,
+        };
+
+        for (i, token) in tokens.iter().enumerate() {
+            if *token == "value" {
+                first_value_index = i + 1;
+
+                break;
+            }
+
+            name.push_str(token);
+            name.push(' ');
+        }
+
+        if tokens.contains(&"value") && tokens.len() > first_value_index {
+            for value_token in tokens[first_value_index..].iter() {
+                value.push_str(value_token);
+                value.push(' ');
+            }
+
+            (*engine).set_option(name.trim(), Some(value.trim()));
+        } else {
+            (*engine).set_option(name.trim(), None);
+        }
+    }
 }
 
 fn ucinewgame(engine: &mut Engine) {
@@ -86,7 +115,7 @@ fn position(args: &[&str], engine: &mut Engine) {
             let fen: Fen = match Fen::from_ascii(fen_string.as_bytes()) {
                 Ok(fen) => fen,
                 Err(_) => {
-                    eprintln!("Failed to parse FEN string.");
+                    eprintln!("Failed to parse FEN string: {}", fen_string);
 
                     return;
                 }
@@ -95,15 +124,20 @@ fn position(args: &[&str], engine: &mut Engine) {
             (*engine).board = match fen.into_position(shakmaty::CastlingMode::Standard) {
                 Ok(board) => board,
                 Err(_) => {
-                    eprintln!("Failed to convert to position.");
+                    eprintln!("Failed to convert to fen into position.");
 
                     return;
                 }
             };
         }
         Some(&"startpos") => (*engine).board = Chess::default(),
+        None => {
+            eprintln!("No arguments given with position.");
+
+            return;
+        }
         _ => {
-            eprintln!("Invalid argument.");
+            eprintln!("Invalid argument: {}", args[0]);
 
             return;
         }
@@ -114,7 +148,7 @@ fn position(args: &[&str], engine: &mut Engine) {
             let uci_move: UciMove = match UciMove::from_ascii(new_move_string.as_bytes()) {
                 Ok(m) => m,
                 Err(_) => {
-                    eprintln!("Failed to parse move.");
+                    eprintln!("Failed to parse move: {}", new_move_string);
 
                     return;
                 }
@@ -123,7 +157,7 @@ fn position(args: &[&str], engine: &mut Engine) {
             let new_move: Move = match uci_move.to_move(&(*engine).board) {
                 Ok(m) => m,
                 Err(_) => {
-                    eprintln!("Invalid UCI move.");
+                    eprintln!("Illegal UCI move: {}", uci_move.to_string());
 
                     return;
                 }
