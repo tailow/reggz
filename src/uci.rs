@@ -169,7 +169,9 @@ fn position(args: &[&str], engine: &mut Engine) {
 }
 
 fn go(args: &[&str], engine: &mut Engine) {
-    engine.search();
+    engine.search(
+        None, false, None, None, None, None, None, None, None, None, None, true,
+    );
 }
 
 fn stop(engine: &mut Engine) {
