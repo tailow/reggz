@@ -5,8 +5,8 @@ pub fn evaluate(board: &Chess) -> f32 {
 
     let bitboard: &Board = board.board();
 
-    evaluation += (bitboard.pawns() & bitboard.white()).count() as f32; // White pawns
-    evaluation -= (bitboard.pawns() & bitboard.black()).count() as f32; // Black pawns
+    evaluation += 1.0 * (bitboard.pawns() & bitboard.white()).count() as f32; // White pawns
+    evaluation -= 1.0 * (bitboard.pawns() & bitboard.black()).count() as f32; // Black pawns
 
     evaluation += 3.2 * (bitboard.bishops() & bitboard.white()).count() as f32; // White bishops
     evaluation -= 3.2 * (bitboard.bishops() & bitboard.black()).count() as f32; // Black bishops

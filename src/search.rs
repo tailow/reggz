@@ -1,5 +1,5 @@
 use crate::evaluate;
-use shakmaty::{CastlingMode, Chess, Color, Move, MoveList, Position};
+use shakmaty::{CastlingMode, Chess, Color, Move, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -24,6 +24,7 @@ pub fn search(
     let mut fully_searched_node: Result<Node, &'static str> = Err("Incomplete search");
 
     let start_time = SystemTime::now();
+
     let mut searched_nodes: u64 = 0;
 
     loop {
@@ -78,12 +79,11 @@ pub fn search(
                         ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
                     );
                 } else {
-                    score = format!("cp {}", node.score);
+                    score = format!("cp {}", (node.score * 100.0) as i64);
                 }
 
                 println!(
-                    "info depth {} score {} time {} nodes {} nps {}",
-                    depth, score, time_ms, searched_nodes, nodes_per_second
+                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second}"
                 )
             }
         }
@@ -160,7 +160,7 @@ fn negamax(
 
         match child_node {
             Ok(child_node) => {
-                if -child_node.score >= node.score {
+                if -child_node.score > node.score {
                     node.score = -child_node.score;
                     node.best_move = Some(legal_move);
 

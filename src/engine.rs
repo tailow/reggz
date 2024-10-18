@@ -87,12 +87,4 @@ impl Engine {
     pub fn ponder_hit(&mut self) {
         self.pondering.store(false, Ordering::Relaxed);
     }
-
-    pub fn set_option(&self, name: &str, value: Option<&str>) {
-        if let Some(optional_value) = value {
-            println!("Set option {} with value {}", name, optional_value);
-        } else {
-            println!("Set option {}", name);
-        }
-    }
 }
