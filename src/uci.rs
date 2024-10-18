@@ -34,7 +34,7 @@ pub fn input_loop(mut engine: &mut Engine) {
 }
 
 fn uci() {
-    println!("id name Seggz II\nid author tailow\nuciok")
+    println!("id name Reggz\nid author tailow\nuciok")
 }
 
 fn debug(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {

@@ -7,7 +7,7 @@ mod timer;
 mod uci;
 
 fn main() {
-    println!("Seggz II UCI Chess engine by tailow");
+    println!("Reggz UCI Chess engine by tailow");
 
     let mut engine: Engine = Engine::new();
 

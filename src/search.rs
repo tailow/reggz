@@ -1,6 +1,5 @@
 use crate::evaluate;
 use shakmaty::{CastlingMode, Chess, Color, Move, Position};
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
