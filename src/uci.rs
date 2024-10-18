@@ -40,13 +40,13 @@ pub fn input_loop(mut engine: &mut Engine) {
 }
 
 fn uci() {
-    println!("id name Seggz\nid author tailow\nuciok")
+    println!("id name Seggz II\nid author tailow\nuciok")
 }
 
 fn debug(args: &[&str], engine: &mut Engine) {
-    match args[0] {
-        "on" => (*engine).debug(&true),
-        "off" => (*engine).debug(&false),
+    match args.get(0) {
+        Some(&"on") => (*engine).debug(&true),
+        Some(&"off") => (*engine).debug(&false),
         _ => return,
     }
 }
@@ -175,7 +175,6 @@ fn go(args: &[&str], engine: &mut Engine) {
     let mut winc: Option<u64> = None;
     let mut binc: Option<u64> = None;
     let mut depth: Option<u64> = None;
-    let mut movetime: Option<u64> = None;
     let mut infinite = false;
 
     let mut iter = args.iter();
@@ -188,13 +187,12 @@ fn go(args: &[&str], engine: &mut Engine) {
             "winc" => winc = iter.next().and_then(|v| v.parse().ok()),
             "binc" => binc = iter.next().and_then(|v| v.parse().ok()),
             "depth" => depth = iter.next().and_then(|v| v.parse().ok()),
-            "movetime" => movetime = iter.next().and_then(|v| v.parse().ok()),
             "infinite" => infinite = true,
             _ => {}
         }
     }
 
-    engine.search(ponder, wtime, btime, winc, binc, depth, movetime, infinite);
+    engine.search(ponder, wtime, btime, winc, binc, depth, infinite);
 }
 
 fn stop(engine: &mut Engine) {
