@@ -1,5 +1,6 @@
 use crate::evaluate;
 use shakmaty::{CastlingMode, Chess, Color, Move, Position};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -73,6 +74,12 @@ pub fn search(
 
                 let node: Node = fully_searched_node.clone().ok().unwrap();
 
+                let mut best_move: String = String::from("none");
+
+                if let Some(bmove) = node.best_move {
+                    best_move = bmove.to_uci(CastlingMode::Standard).to_string();
+                }
+
                 if let Some(mate_in_plies) = node.mate_in_plies {
                     score = format!(
                         "mate {}",
@@ -83,7 +90,7 @@ pub fn search(
                 }
 
                 println!(
-                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second}"
+                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} string pv {best_move}"
                 )
             }
         }
@@ -125,7 +132,7 @@ fn negamax(
     };
 
     if board.is_checkmate() {
-        node.score = f32::NEG_INFINITY;
+        node.score = -1000.0;
         node.mate_in_plies = Some(0);
 
         return Ok(node);
