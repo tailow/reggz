@@ -169,9 +169,32 @@ fn position(args: &[&str], engine: &mut Engine) {
 }
 
 fn go(args: &[&str], engine: &mut Engine) {
-    engine.search(
-        None, false, None, None, None, None, None, None, None, None, None, true,
-    );
+    let mut ponder = false;
+    let mut wtime: Option<u64> = None;
+    let mut btime: Option<u64> = None;
+    let mut winc: Option<u64> = None;
+    let mut binc: Option<u64> = None;
+    let mut depth: Option<u64> = None;
+    let mut movetime: Option<u64> = None;
+    let mut infinite = false;
+
+    let mut iter = args.iter();
+
+    while let Some(arg) = iter.next() {
+        match *arg {
+            "ponder" => ponder = true,
+            "wtime" => wtime = iter.next().and_then(|v| v.parse().ok()),
+            "btime" => btime = iter.next().and_then(|v| v.parse().ok()),
+            "winc" => winc = iter.next().and_then(|v| v.parse().ok()),
+            "binc" => binc = iter.next().and_then(|v| v.parse().ok()),
+            "depth" => depth = iter.next().and_then(|v| v.parse().ok()),
+            "movetime" => movetime = iter.next().and_then(|v| v.parse().ok()),
+            "infinite" => infinite = true,
+            _ => {}
+        }
+    }
+
+    engine.search(ponder, wtime, btime, winc, binc, depth, movetime, infinite);
 }
 
 fn stop(engine: &mut Engine) {

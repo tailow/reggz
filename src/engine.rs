@@ -1,5 +1,5 @@
 use crate::search;
-use shakmaty::{Chess, Move, Position};
+use shakmaty::{Chess, Move};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -25,17 +25,13 @@ impl Engine {
 
     pub fn search(
         &self,
-        search_moves: Option<&[Move]>,
         ponder: bool,
-        white_time: Option<u32>,
-        black_time: Option<u32>,
-        white_increment: Option<u32>,
-        black_increment: Option<u32>,
-        moves_to_go: Option<u32>,
-        depth: Option<u32>,
-        nodes: Option<u32>,
-        mate: Option<u32>,
-        move_time: Option<u32>,
+        white_time: Option<u64>,
+        black_time: Option<u64>,
+        white_increment: Option<u64>,
+        black_increment: Option<u64>,
+        depth: Option<u64>,
+        move_time: Option<u64>,
         infinite: bool,
     ) {
         self.searching.store(true, Ordering::Relaxed);
@@ -52,19 +48,9 @@ impl Engine {
                 searching_clone,
                 pondering_clone,
                 debug_clone,
-                None,
+                depth,
             )
         });
-    }
-
-    pub fn print_state(&self) {
-        println!(
-            "{} {} {} {}",
-            self.board.board().to_string(),
-            self.debug.load(Ordering::Relaxed),
-            self.searching.load(Ordering::Relaxed),
-            self.pondering.load(Ordering::Relaxed)
-        );
     }
 
     pub fn debug(&mut self, enable: &bool) {

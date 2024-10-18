@@ -15,9 +15,9 @@ pub fn search(
     searching: Arc<AtomicBool>,
     pondering: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
-    max_depth: Option<u32>,
+    max_depth: Option<u64>,
 ) {
-    let mut depth: u32 = 1;
+    let mut depth: u64 = 1;
 
     let mut actively_searched_node: Option<Node>;
     let mut fully_searched_node: Option<Node> = None;
@@ -68,7 +68,7 @@ pub fn search(
 
 fn negamax(
     board: &Chess,
-    depth: u32,
+    depth: u64,
     alpha: &mut f32,
     beta: &mut f32,
     color: f32,
