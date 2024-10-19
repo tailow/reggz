@@ -25,8 +25,6 @@ pub fn search(
 
     let start_time = SystemTime::now();
 
-    let mut searched_nodes: u64 = 0;
-
     loop {
         if let Some(max_depth) = max_depth {
             if depth > max_depth {
@@ -40,6 +38,8 @@ pub fn search(
 
         let mut alpha = -f32::INFINITY;
         let mut beta = f32::INFINITY;
+
+        let mut searched_nodes: u64 = 0;
 
         if board.turn() == Color::White {
             actively_searched_node = negamax(
@@ -89,7 +89,7 @@ pub fn search(
                 }
 
                 println!(
-                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} string pv {best_move}"
+                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {best_move}"
                 )
             }
         }
@@ -122,8 +122,6 @@ fn negamax(
         return Err("Incomplete search");
     }
 
-    *nodes += 1;
-
     let mut node: Node = Node {
         score: 0.0,
         best_move: None,
@@ -150,6 +148,8 @@ fn negamax(
     node.score = f32::NEG_INFINITY;
 
     for legal_move in board.legal_moves() {
+        *nodes += 1;
+
         let mut board_clone = board.clone();
 
         board_clone.play_unchecked(&legal_move);
