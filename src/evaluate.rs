@@ -108,6 +108,41 @@ pub fn evaluate(board: &Chess) -> i32 {
         PAWN_VALUES,
     );
 
+    // Knight positions
+    score += get_positional_value(bitboard.knights() & bitboard.white(), KNIGHT_VALUES);
+    score -= get_positional_value(
+        (bitboard.knights() & bitboard.black()).flip_vertical(),
+        KNIGHT_VALUES,
+    );
+
+    // Bishop positions
+    score += get_positional_value(bitboard.bishops() & bitboard.white(), BISHOP_VALUES);
+    score -= get_positional_value(
+        (bitboard.bishops() & bitboard.black()).flip_vertical(),
+        BISHOP_VALUES,
+    );
+
+    // Rook positions
+    score += get_positional_value(bitboard.rooks() & bitboard.white(), ROOK_VALUES);
+    score -= get_positional_value(
+        (bitboard.rooks() & bitboard.black()).flip_vertical(),
+        ROOK_VALUES,
+    );
+
+    // Queen positions
+    score += get_positional_value(bitboard.queens() & bitboard.white(), QUEEN_VALUES);
+    score -= get_positional_value(
+        (bitboard.queens() & bitboard.black()).flip_vertical(),
+        QUEEN_VALUES,
+    );
+
+    // King positions
+    score += get_positional_value(bitboard.kings() & bitboard.white(), KING_VALUES);
+    score -= get_positional_value(
+        (bitboard.kings() & bitboard.black()).flip_vertical(),
+        KING_VALUES,
+    );
+
     return score;
 }
 
