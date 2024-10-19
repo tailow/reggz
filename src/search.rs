@@ -128,14 +128,22 @@ fn negamax(
         mate_in_plies: None,
     };
 
-    if board.is_checkmate() {
+    if board.is_insufficient_material() {
+        return Ok(node);
+    }
+
+    let legal_moves = board.legal_moves();
+
+    // Checkmate
+    if !board.checkers().is_empty() && legal_moves.is_empty() {
         node.score = -1000.0;
         node.mate_in_plies = Some(0);
 
         return Ok(node);
     }
 
-    if board.is_stalemate() || board.is_insufficient_material() {
+    // Stalemate
+    if board.checkers().is_empty() && legal_moves.is_empty() {
         return Ok(node);
     }
 
@@ -147,7 +155,7 @@ fn negamax(
 
     node.score = f32::NEG_INFINITY;
 
-    for legal_move in board.legal_moves() {
+    for legal_move in legal_moves {
         *nodes += 1;
 
         let mut board_clone = board.clone();
