@@ -30,6 +30,7 @@ impl Engine {
         black_time: Option<u64>,
         white_increment: Option<u64>,
         black_increment: Option<u64>,
+        move_time: Option<u64>,
         depth: Option<u64>,
         infinite: bool,
     ) {
@@ -54,16 +55,24 @@ impl Engine {
         let searching_clone = Arc::clone(&self.searching);
 
         if !infinite {
-            if self.board.turn() == Color::White && white_time.is_some() {
+            if move_time.is_some() {
+                let move_time = move_time.unwrap();
+
+                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+            } else if self.board.turn() == Color::White && white_time.is_some() {
                 let remaining = white_time.unwrap();
                 let increment = white_increment.unwrap_or(0);
 
-                thread::spawn(move || timer::timer(remaining, increment, searching_clone));
+                let move_time = remaining / 20 + increment / 2;
+
+                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
             } else if self.board.turn() == Color::Black && black_time.is_some() {
                 let remaining = black_time.unwrap();
                 let increment = black_increment.unwrap_or(0);
 
-                thread::spawn(move || timer::timer(remaining, increment, searching_clone));
+                let move_time = remaining / 20 + increment / 2;
+
+                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
             }
         }
     }

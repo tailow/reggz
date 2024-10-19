@@ -99,6 +99,7 @@ fn go(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
     let mut btime: Option<u64> = None;
     let mut winc: Option<u64> = None;
     let mut binc: Option<u64> = None;
+    let mut movetime: Option<u64> = None;
     let mut depth: Option<u64> = None;
     let mut infinite = false;
 
@@ -109,13 +110,14 @@ fn go(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
             "btime" => btime = tokens.next().and_then(|v| v.parse().ok()),
             "winc" => winc = tokens.next().and_then(|v| v.parse().ok()),
             "binc" => binc = tokens.next().and_then(|v| v.parse().ok()),
+            "movetime" => movetime = tokens.next().and_then(|v| v.parse().ok()),
             "depth" => depth = tokens.next().and_then(|v| v.parse().ok()),
             "infinite" => infinite = true,
             _ => {}
         }
     }
 
-    engine.search(ponder, wtime, btime, winc, binc, depth, infinite);
+    engine.search(ponder, wtime, btime, winc, binc, movetime, depth, infinite);
 }
 
 fn stop(engine: &mut Engine) {

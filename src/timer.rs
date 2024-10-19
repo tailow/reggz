@@ -7,10 +7,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-pub fn timer(remaining: u64, increment: u64, searching: Arc<AtomicBool>) {
+pub fn search_for_ms(move_time: u64, searching: Arc<AtomicBool>) {
     let start_time = SystemTime::now();
 
-    let duration = Duration::from_millis(remaining / 20 + increment / 2);
+    let duration = Duration::from_millis(move_time);
 
     while searching.load(Ordering::Relaxed) {
         match start_time.elapsed() {
