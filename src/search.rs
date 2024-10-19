@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
 struct Node {
-    pub score: f32,
+    pub score: i32,
     pub best_move: Option<Move>,
     pub mate_in_plies: Option<i8>,
 }
@@ -36,8 +36,8 @@ pub fn search(
             break;
         }
 
-        let mut alpha = -f32::INFINITY;
-        let mut beta = f32::INFINITY;
+        let mut alpha = -1000000;
+        let mut beta = 1000000;
 
         let mut searched_nodes: u64 = 0;
 
@@ -47,7 +47,7 @@ pub fn search(
                 depth,
                 &mut alpha,
                 &mut beta,
-                1.0,
+                1,
                 &searching,
                 &mut searched_nodes,
             );
@@ -57,7 +57,7 @@ pub fn search(
                 depth,
                 &mut alpha,
                 &mut beta,
-                -1.0,
+                -1,
                 &searching,
                 &mut searched_nodes,
             );
@@ -85,7 +85,7 @@ pub fn search(
                         ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
                     );
                 } else {
-                    score = format!("cp {}", (node.score * 100.0) as i64);
+                    score = format!("cp {}", node.score);
                 }
 
                 println!(
@@ -112,9 +112,9 @@ pub fn search(
 fn negamax(
     board: &Chess,
     depth: u64,
-    alpha: &mut f32,
-    beta: &mut f32,
-    color: f32,
+    alpha: &mut i32,
+    beta: &mut i32,
+    color: i32,
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
 ) -> Result<Node, &'static str> {
@@ -123,7 +123,7 @@ fn negamax(
     }
 
     let mut node: Node = Node {
-        score: 0.0,
+        score: 0,
         best_move: None,
         mate_in_plies: None,
     };
@@ -136,7 +136,7 @@ fn negamax(
 
     // Checkmate
     if !board.checkers().is_empty() && legal_moves.is_empty() {
-        node.score = -1000.0;
+        node.score = -100000;
         node.mate_in_plies = Some(0);
 
         return Ok(node);
@@ -153,7 +153,7 @@ fn negamax(
         return Ok(node);
     }
 
-    node.score = f32::NEG_INFINITY;
+    node.score = i32::MIN;
 
     for legal_move in legal_moves {
         *nodes += 1;
@@ -170,37 +170,32 @@ fn negamax(
             -color,
             &searching,
             nodes,
-        );
+        )?;
 
-        match child_node {
-            Ok(child_node) => {
-                if -child_node.score > node.score {
-                    node.score = -child_node.score;
-                    node.best_move = Some(legal_move);
+        if -child_node.score > node.score {
+            node.score = -child_node.score;
+            node.best_move = Some(legal_move);
 
-                    if let Some(child_mate_in_plies) = child_node.mate_in_plies {
-                        if child_mate_in_plies == 0 {
-                            // We have mate in one
-                            node.mate_in_plies = Some(1);
-                        } else if child_mate_in_plies > 0 {
-                            // Opponent has mate in x plies
-                            node.mate_in_plies = Some(-child_mate_in_plies - 1);
-                        } else if child_mate_in_plies < 0 {
-                            // We have mate in x plies
-                            node.mate_in_plies = Some(-child_mate_in_plies + 1);
-                        }
-                    } else {
-                        node.mate_in_plies = None;
-                    }
+            *alpha = i32::max(*alpha, node.score);
+
+            if let Some(child_mate_in_plies) = child_node.mate_in_plies {
+                if child_mate_in_plies == 0 {
+                    // We have mate in one
+                    node.mate_in_plies = Some(1);
+                } else if child_mate_in_plies > 0 {
+                    // Opponent has mate in x plies
+                    node.mate_in_plies = Some(-child_mate_in_plies - 1);
+                } else if child_mate_in_plies < 0 {
+                    // We have mate in x plies
+                    node.mate_in_plies = Some(-child_mate_in_plies + 1);
                 }
-
-                *alpha = f32::max(*alpha, node.score);
-
-                if *alpha >= *beta {
-                    break;
-                }
+            } else {
+                node.mate_in_plies = None;
             }
-            Err(e) => return Err(e),
+        }
+
+        if node.score >= *beta {
+            break;
         }
     }
 
