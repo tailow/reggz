@@ -134,17 +134,20 @@ fn negamax(
 
     let legal_moves = board.legal_moves();
 
-    // Checkmate
-    if !board.checkers().is_empty() && legal_moves.is_empty() {
-        node.score = -100000;
-        node.mate_in_plies = Some(0);
+    // Checkmate or stalemate
+    if legal_moves.is_empty() {
+        if !board.checkers().is_empty() {
+            node.score = -100000;
+            node.mate_in_plies = Some(0);
+        }
 
         return Ok(node);
     }
-
-    // Stalemate
-    if board.checkers().is_empty() && legal_moves.is_empty() {
-        return Ok(node);
+    // 50-move rule
+    else {
+        if board.halfmoves() >= 100 {
+            return Ok(node);
+        }
     }
 
     if depth == 0 {
