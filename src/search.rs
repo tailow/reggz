@@ -10,6 +10,7 @@ struct Node {
     pub score: i32,
     pub best_move: Option<Move>,
     pub mate_in_plies: Option<i8>,
+    pub terminal: bool,
 }
 
 pub fn search(
@@ -101,6 +102,13 @@ pub fn search(
             }
         }
 
+        // If all of the moves lead into terminal nodes, break
+        if let Ok(node) = fully_searched_node.clone() {
+            if node.terminal {
+                break;
+            }
+        }
+
         depth += 1;
     }
 
@@ -135,6 +143,7 @@ fn negamax(
         score: 0,
         best_move: None,
         mate_in_plies: None,
+        terminal: true,
     };
 
     if board.is_insufficient_material() {
@@ -178,6 +187,7 @@ fn negamax(
 
     if depth == 0 {
         node.score = color * evaluate::evaluate(&board);
+        node.terminal = false;
 
         return Ok(node);
     }
@@ -212,6 +222,10 @@ fn negamax(
             plies_since_irreversible_move,
             &position_history_clone,
         )?;
+
+        if !child_node.terminal {
+            node.terminal = false;
+        }
 
         if -child_node.score > node.score {
             node.score = -child_node.score;

@@ -1,7 +1,5 @@
 use crate::engine::Engine;
-use shakmaty::{
-    fen::Fen, uci::UciMove, zobrist::ZobristHash, EnPassantMode, Move, Position,
-};
+use shakmaty::{fen::Fen, uci::UciMove, zobrist::ZobristHash, EnPassantMode, Move, Position};
 use std::{io, str::SplitWhitespace};
 
 pub fn input_loop(mut engine: &mut Engine) {
