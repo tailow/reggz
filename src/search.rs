@@ -1,5 +1,6 @@
 use crate::evaluate;
-use shakmaty::{CastlingMode, Chess, Color, Move, Position};
+use shakmaty::zobrist::{Zobrist64, ZobristHash};
+use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -17,6 +18,8 @@ pub fn search(
     pondering: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
     max_depth: Option<u64>,
+    plies_since_irreversible_move: u64,
+    position_history: Vec<Zobrist64>,
 ) {
     let mut depth: u64 = 1;
 
@@ -50,6 +53,8 @@ pub fn search(
                 1,
                 &searching,
                 &mut searched_nodes,
+                plies_since_irreversible_move,
+                &position_history,
             );
         } else {
             actively_searched_node = negamax(
@@ -60,6 +65,8 @@ pub fn search(
                 -1,
                 &searching,
                 &mut searched_nodes,
+                plies_since_irreversible_move,
+                &position_history,
             );
         }
 
@@ -117,6 +124,8 @@ fn negamax(
     color: i32,
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
+    plies_since_irreversible_move: u64,
+    position_history: &Vec<Zobrist64>,
 ) -> Result<Node, &'static str> {
     if !searching.load(Ordering::Relaxed) {
         return Err("Incomplete search");
@@ -150,6 +159,23 @@ fn negamax(
         }
     }
 
+    // Threefold repetition
+    if plies_since_irreversible_move >= 8 {
+        let current_board_hash: Zobrist64 = board.zobrist_hash(EnPassantMode::Legal);
+
+        let mut repetitions: u64 = 0;
+
+        for position in position_history {
+            if *position == current_board_hash {
+                repetitions += 1;
+
+                if repetitions > 2 {
+                    return Ok(node);
+                }
+            }
+        }
+    }
+
     if depth == 0 {
         node.score = color * evaluate::evaluate(&board);
 
@@ -165,6 +191,16 @@ fn negamax(
 
         board_clone.play_unchecked(&legal_move);
 
+        let mut position_history_clone = position_history.clone();
+
+        position_history_clone.push(board_clone.zobrist_hash(EnPassantMode::Legal));
+
+        let plies_since_irreversible_move = if board.is_irreversible(&legal_move) {
+            0
+        } else {
+            plies_since_irreversible_move + 1
+        };
+
         let child_node = negamax(
             &board_clone,
             depth - 1,
@@ -173,6 +209,8 @@ fn negamax(
             -color,
             &searching,
             nodes,
+            plies_since_irreversible_move,
+            &position_history_clone,
         )?;
 
         if -child_node.score > node.score {
