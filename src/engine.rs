@@ -1,5 +1,8 @@
 use crate::{search, timer};
-use shakmaty::{Chess, Color, Position};
+use shakmaty::{
+    zobrist::{Zobrist64, ZobristHash},
+    Chess, Color, Position,
+};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -11,6 +14,8 @@ pub struct Engine {
     debug: Arc<AtomicBool>,
     searching: Arc<AtomicBool>,
     pondering: Arc<AtomicBool>,
+    pub plies_since_irreversible_move: u64,
+    pub position_history: Vec<Zobrist64>,
 }
 
 impl Engine {
@@ -20,6 +25,8 @@ impl Engine {
             debug: Arc::new(AtomicBool::new(true)),
             searching: Arc::new(AtomicBool::new(false)),
             pondering: Arc::new(AtomicBool::new(false)),
+            plies_since_irreversible_move: 0,
+            position_history: Vec::with_capacity(512),
         }
     }
 
@@ -42,6 +49,9 @@ impl Engine {
         let searching_clone = Arc::clone(&self.searching);
         let pondering_clone = Arc::clone(&self.pondering);
 
+        let plies_since_irreversible_clone = self.plies_since_irreversible_move.clone();
+        let position_history_clone = self.position_history.clone();
+
         thread::spawn(move || {
             search::search(
                 board_clone,
@@ -49,6 +59,8 @@ impl Engine {
                 pondering_clone,
                 debug_clone,
                 depth,
+                plies_since_irreversible_clone,
+                position_history_clone,
             )
         });
 
@@ -85,7 +97,13 @@ impl Engine {
         self.searching.store(false, Ordering::Relaxed);
         self.pondering.store(false, Ordering::Relaxed);
 
-        self.board = Chess::default()
+        self.board = Chess::new();
+
+        self.plies_since_irreversible_move = 0;
+        self.position_history.clear();
+
+        self.position_history
+            .push(self.board.zobrist_hash(shakmaty::EnPassantMode::Legal));
     }
 
     pub fn stop(&mut self) {

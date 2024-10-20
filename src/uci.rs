@@ -1,5 +1,5 @@
 use crate::engine::Engine;
-use shakmaty::{fen::Fen, uci::UciMove, Chess, Move, Position};
+use shakmaty::{fen::Fen, uci::UciMove, zobrist::ZobristHash, EnPassantMode, Move, Position};
 use std::{io, str::SplitWhitespace};
 
 pub fn input_loop(mut engine: &mut Engine) {
@@ -55,8 +55,10 @@ fn ucinewgame(engine: &mut Engine) {
 
 fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
     match tokens.next() {
-        Some("startpos") => engine.board = Chess::default(),
+        Some("startpos") => engine.reset(),
         Some("fen") => {
+            engine.reset();
+
             let fen_parts: Vec<&str> = tokens.by_ref().take(6).collect();
 
             let fen_string = fen_parts.join(" ");
@@ -89,6 +91,16 @@ fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
             };
 
             engine.board.play_unchecked(&new_move);
+
+            engine
+                .position_history
+                .push(engine.board.zobrist_hash(EnPassantMode::Legal));
+
+            if engine.board.is_irreversible(&new_move) {
+                engine.plies_since_irreversible_move = 0;
+            } else {
+                engine.plies_since_irreversible_move += 1;
+            }
         }
     }
 }
