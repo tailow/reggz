@@ -75,7 +75,7 @@ pub fn search(
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
 
-            let pv: Vec<Move> = get_principal_variation(&mut board.clone(), &transposition_table);
+            let pv: Vec<Move> = get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
             if debug.load(Ordering::Relaxed) {
                 print_info(&node, start_time, searched_nodes, depth, pv);
@@ -308,12 +308,15 @@ fn negamax(
 
 fn get_principal_variation(
     board: &mut Chess,
+    depth: u8,
     transposition_table: &Vec<Option<Node>>,
 ) -> Vec<Move> {
-    let mut pv: Vec<Move> = Vec::with_capacity(32);
+    let mut pv: Vec<Move> = Vec::new();
 
-    loop {
-        let hash: u64 = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
+    let mut hash: u64;
+
+    for i in 0..depth {
+        hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
 
         if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
             if let Some(ref best_move) = pv_node.best_move {
