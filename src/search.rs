@@ -75,8 +75,10 @@ pub fn search(
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
 
+            let pv: Vec<Move> = get_principal_variation(&mut board.clone(), &transposition_table);
+
             if debug.load(Ordering::Relaxed) {
-                print_info(&node, start_time, searched_nodes, depth);
+                print_info(&node, start_time, searched_nodes, depth, pv);
             }
 
             // If all of the moves lead into terminal nodes, stop searching
@@ -100,16 +102,16 @@ pub fn search(
     searching.store(false, Ordering::Relaxed);
 }
 
-fn print_info(node: &Node, start_time: SystemTime, searched_nodes: u64, depth: u8) {
+fn print_info(node: &Node, start_time: SystemTime, searched_nodes: u64, depth: u8, pv: Vec<Move>) {
     let time_ms = start_time.elapsed().unwrap().as_millis();
     let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
     let score: String;
 
-    let mut best_move_string: String = String::from("none");
-
-    if let Some(ref best_move) = node.best_move {
-        best_move_string = best_move.to_uci(CastlingMode::Standard).to_string();
-    }
+    let pv_string: String = pv
+        .iter()
+        .map(|m| m.to_uci(CastlingMode::Standard).to_string())
+        .collect::<Vec<String>>()
+        .join(" ");
 
     if let Some(mate_in_plies) = node.mate_in_plies {
         score = format!(
@@ -120,7 +122,7 @@ fn print_info(node: &Node, start_time: SystemTime, searched_nodes: u64, depth: u
         score = format!("cp {}", node.score);
     }
 
-    println!("info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {best_move_string}");
+    println!("info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {pv_string}");
 }
 
 fn negamax(
@@ -302,4 +304,33 @@ fn negamax(
     }
 
     return Ok(node);
+}
+
+fn get_principal_variation(
+    board: &mut Chess,
+    transposition_table: &Vec<Option<Node>>,
+) -> Vec<Move> {
+    let mut pv: Vec<Move> = Vec::with_capacity(32);
+
+    loop {
+        let hash: u64 = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
+
+        if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
+            if let Some(ref best_move) = pv_node.best_move {
+                if board.is_legal(best_move) {
+                    pv.push(best_move.clone());
+
+                    board.play_unchecked(best_move);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    return pv;
 }
