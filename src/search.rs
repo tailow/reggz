@@ -1,7 +1,7 @@
 use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate;
 use shakmaty::zobrist::{Zobrist64, ZobristHash};
-use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position};
+use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -40,6 +40,8 @@ pub fn search(
 
     let mut transposition_table = transposition_table.lock().unwrap();
 
+    let mut principal_variation: Vec<Move>;
+
     for depth in 1..u8::MAX {
         if let Some(max_depth) = max_depth {
             if depth > max_depth {
@@ -75,11 +77,17 @@ pub fn search(
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
 
-            let pv: Vec<Move> =
+            principal_variation =
                 get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
             if debug.load(Ordering::Relaxed) {
-                print_info(&node, start_time, searched_nodes, depth, pv);
+                print_info(
+                    &node,
+                    start_time,
+                    searched_nodes,
+                    depth,
+                    &principal_variation,
+                );
             }
 
             // If all of the moves lead into terminal nodes, stop searching
@@ -103,12 +111,18 @@ pub fn search(
     searching.store(false, Ordering::Relaxed);
 }
 
-fn print_info(node: &Node, start_time: SystemTime, searched_nodes: u64, depth: u8, pv: Vec<Move>) {
+fn print_info(
+    node: &Node,
+    start_time: SystemTime,
+    searched_nodes: u64,
+    depth: u8,
+    principal_variation: &Vec<Move>,
+) {
     let time_ms = start_time.elapsed().unwrap().as_millis();
     let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
     let score: String;
 
-    let pv_string: String = pv
+    let pv_string: String = principal_variation
         .iter()
         .map(|m| m.to_uci(CastlingMode::Standard).to_string())
         .collect::<Vec<String>>()
@@ -159,7 +173,7 @@ fn negamax(
         return Ok(node);
     }
 
-    let legal_moves = board.legal_moves();
+    let mut legal_moves: MoveList = board.legal_moves();
 
     // Checkmate or stalemate
     if legal_moves.is_empty() {
@@ -220,6 +234,8 @@ fn negamax(
     }
 
     node.score = -30000;
+
+    sort_legal_moves(&mut legal_moves, board, hash, transposition_table);
 
     for legal_move in legal_moves {
         *nodes += 1;
@@ -305,6 +321,23 @@ fn negamax(
     }
 
     return Ok(node);
+}
+
+fn sort_legal_moves(
+    legal_moves: &mut MoveList,
+    board: &Chess,
+    hash: u64,
+    transposition_table: &Vec<Option<Node>>,
+) {
+    if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
+        if let Some(ref best_move) = pv_node.best_move {
+            if board.is_legal(best_move) {
+                if let Some(pos) = legal_moves.iter().position(|m| m == best_move) {
+                    legal_moves.swap(0, pos);
+                }
+            }
+        }
+    }
 }
 
 fn get_principal_variation(
