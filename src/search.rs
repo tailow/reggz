@@ -1,14 +1,25 @@
+use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate;
 use shakmaty::zobrist::{Zobrist64, ZobristHash};
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeType {
+    EXACT,
+    UPPERBOUND,
+    LOWERBOUND,
+}
+
 #[derive(Debug, Clone)]
-struct Node {
-    pub score: i32,
+pub struct Node {
+    pub hash: u64,
+    pub score: i16,
     pub best_move: Option<Move>,
+    pub depth: u8,
+    pub node_type: NodeType,
     pub mate_in_plies: Option<i8>,
     pub terminal: bool,
 }
@@ -16,20 +27,20 @@ struct Node {
 pub fn search(
     board: Chess,
     searching: Arc<AtomicBool>,
-    pondering: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
-    max_depth: Option<u64>,
+    max_depth: Option<u8>,
     plies_since_irreversible_move: u64,
     position_history: Vec<Zobrist64>,
+    transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
-    let mut depth: u64 = 1;
-
     let mut actively_searched_node: Result<Node, &'static str>;
-    let mut fully_searched_node: Result<Node, &'static str> = Err("Incomplete search");
+    let mut fully_searched_node: Option<Node> = None;
 
     let start_time = SystemTime::now();
 
-    loop {
+    let mut transposition_table = transposition_table.lock().unwrap();
+
+    for depth in 1..u8::MAX {
         if let Some(max_depth) = max_depth {
             if depth > max_depth {
                 break;
@@ -40,79 +51,47 @@ pub fn search(
             break;
         }
 
-        let mut alpha = -1000000;
-        let mut beta = 1000000;
+        let mut alpha = -10000;
+        let mut beta = 10000;
 
         let mut searched_nodes: u64 = 0;
 
-        if board.turn() == Color::White {
-            actively_searched_node = negamax(
-                &board,
-                depth,
-                &mut alpha,
-                &mut beta,
-                1,
-                &searching,
-                &mut searched_nodes,
-                plies_since_irreversible_move,
-                &position_history,
-            );
-        } else {
-            actively_searched_node = negamax(
-                &board,
-                depth,
-                &mut alpha,
-                &mut beta,
-                -1,
-                &searching,
-                &mut searched_nodes,
-                plies_since_irreversible_move,
-                &position_history,
-            );
-        }
+        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
 
-        if searching.load(Ordering::Relaxed) {
-            fully_searched_node = actively_searched_node;
+        actively_searched_node = negamax(
+            &board,
+            depth,
+            &mut alpha,
+            &mut beta,
+            if board.turn() == Color::White { 1 } else { -1 },
+            &searching,
+            &mut searched_nodes,
+            plies_since_irreversible_move,
+            &position_history,
+            &mut transposition_table,
+            hash,
+        );
+
+        if let Ok(node) = actively_searched_node {
+            fully_searched_node = Some(node.clone());
+
+            let pv: Vec<Move> =
+                get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
             if debug.load(Ordering::Relaxed) {
-                let time_ms = start_time.elapsed().unwrap().as_millis();
-                let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
-                let score: String;
-
-                let node: Node = fully_searched_node.clone().ok().unwrap();
-
-                let mut best_move: String = String::from("none");
-
-                if let Some(bmove) = node.best_move {
-                    best_move = bmove.to_uci(CastlingMode::Standard).to_string();
-                }
-
-                if let Some(mate_in_plies) = node.mate_in_plies {
-                    score = format!(
-                        "mate {}",
-                        ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
-                    );
-                } else {
-                    score = format!("cp {}", node.score);
-                }
-
-                println!(
-                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {best_move}"
-                )
+                print_info(&node, start_time, searched_nodes, depth, pv);
             }
-        }
 
-        // If all of the moves lead into terminal nodes, break
-        if let Ok(node) = fully_searched_node.clone() {
+            // If all of the moves lead into terminal nodes, stop searching
             if node.terminal {
                 break;
             }
+        } else {
+            break;
         }
-
-        depth += 1;
     }
 
-    if let Ok(fully_searched_node) = fully_searched_node {
+    if let Some(fully_searched_node) = fully_searched_node {
         if let Some(best_move) = fully_searched_node.best_move {
             println!(
                 "bestmove {}",
@@ -124,27 +103,57 @@ pub fn search(
     searching.store(false, Ordering::Relaxed);
 }
 
+fn print_info(node: &Node, start_time: SystemTime, searched_nodes: u64, depth: u8, pv: Vec<Move>) {
+    let time_ms = start_time.elapsed().unwrap().as_millis();
+    let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
+    let score: String;
+
+    let pv_string: String = pv
+        .iter()
+        .map(|m| m.to_uci(CastlingMode::Standard).to_string())
+        .collect::<Vec<String>>()
+        .join(" ");
+
+    if let Some(mate_in_plies) = node.mate_in_plies {
+        score = format!(
+            "mate {}",
+            ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
+        );
+    } else {
+        score = format!("cp {}", node.score);
+    }
+
+    println!("info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {pv_string}");
+}
+
 fn negamax(
     board: &Chess,
-    depth: u64,
-    alpha: &mut i32,
-    beta: &mut i32,
-    color: i32,
+    depth: u8,
+    alpha: &mut i16,
+    beta: &mut i16,
+    color: i16,
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
     plies_since_irreversible_move: u64,
     position_history: &Vec<Zobrist64>,
+    transposition_table: &mut Vec<Option<Node>>,
+    hash: u64,
 ) -> Result<Node, &'static str> {
     if !searching.load(Ordering::Relaxed) {
         return Err("Incomplete search");
     }
 
     let mut node: Node = Node {
+        hash: hash,
         score: 0,
         best_move: None,
+        depth: depth,
+        node_type: NodeType::UPPERBOUND,
         mate_in_plies: None,
         terminal: true,
     };
+
+    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
 
     if board.is_insufficient_material() {
         return Ok(node);
@@ -155,7 +164,7 @@ fn negamax(
     // Checkmate or stalemate
     if legal_moves.is_empty() {
         if !board.checkers().is_empty() {
-            node.score = -100000;
+            node.score = -20000;
             node.mate_in_plies = Some(0);
         }
 
@@ -185,6 +194,24 @@ fn negamax(
         }
     }
 
+    // Transposition table hit
+    if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+        if tt_node.hash == hash && tt_node.depth >= depth {
+            node = tt_node.clone();
+
+            if node.node_type == NodeType::EXACT {
+                return Ok(node);
+            } else if node.node_type == NodeType::LOWERBOUND {
+                *alpha = i16::max(*alpha, node.score);
+            } else if node.node_type == NodeType::UPPERBOUND {
+                *beta = i16::min(*beta, node.score);
+            }
+            if alpha >= beta {
+                return Ok(node);
+            }
+        }
+    }
+
     if depth == 0 {
         node.score = color * evaluate::evaluate(&board);
         node.terminal = false;
@@ -192,7 +219,7 @@ fn negamax(
         return Ok(node);
     }
 
-    node.score = i32::MIN;
+    node.score = -30000;
 
     for legal_move in legal_moves {
         *nodes += 1;
@@ -201,9 +228,11 @@ fn negamax(
 
         board_clone.play_unchecked(&legal_move);
 
+        let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
+
         let mut position_history_clone = position_history.clone();
 
-        position_history_clone.push(board_clone.zobrist_hash(EnPassantMode::Legal));
+        position_history_clone.push(child_hash);
 
         let plies_since_irreversible_move = if board.is_irreversible(&legal_move) {
             0
@@ -221,6 +250,8 @@ fn negamax(
             nodes,
             plies_since_irreversible_move,
             &position_history_clone,
+            transposition_table,
+            child_hash.0,
         )?;
 
         if !child_node.terminal {
@@ -231,7 +262,11 @@ fn negamax(
             node.score = -child_node.score;
             node.best_move = Some(legal_move);
 
-            *alpha = i32::max(*alpha, node.score);
+            if node.score > *alpha {
+                *alpha = node.score;
+
+                node.node_type = NodeType::EXACT;
+            }
 
             if let Some(child_mate_in_plies) = child_node.mate_in_plies {
                 if child_mate_in_plies == 0 {
@@ -244,15 +279,62 @@ fn negamax(
                     // We have mate in x plies
                     node.mate_in_plies = Some(-child_mate_in_plies + 1);
                 }
+
+                node.terminal = true;
             } else {
                 node.mate_in_plies = None;
             }
         }
 
         if node.score >= *beta {
+            node.node_type = NodeType::LOWERBOUND;
+
             break;
         }
     }
 
+    // Store node in the transposition table
+    if searching.load(Ordering::Relaxed) {
+        if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+            if tt_node.depth < depth {
+                transposition_table[transposition_table_index] = Some(node.clone());
+            }
+        } else {
+            transposition_table[transposition_table_index] = Some(node.clone());
+        }
+    }
+
     return Ok(node);
+}
+
+fn get_principal_variation(
+    board: &mut Chess,
+    depth: u8,
+    transposition_table: &Vec<Option<Node>>,
+) -> Vec<Move> {
+    let mut pv: Vec<Move> = Vec::new();
+
+    let mut hash: u64;
+
+    for _ in 0..depth {
+        hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
+
+        if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
+            if let Some(ref best_move) = pv_node.best_move {
+                if board.is_legal(best_move) {
+                    pv.push(best_move.clone());
+
+                    board.play_unchecked(best_move);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    return pv;
 }

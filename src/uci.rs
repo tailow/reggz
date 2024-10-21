@@ -106,18 +106,16 @@ fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
 }
 
 fn go(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
-    let mut ponder = false;
     let mut wtime: Option<u64> = None;
     let mut btime: Option<u64> = None;
     let mut winc: Option<u64> = None;
     let mut binc: Option<u64> = None;
     let mut movetime: Option<u64> = None;
-    let mut depth: Option<u64> = None;
+    let mut depth: Option<u8> = None;
     let mut infinite = false;
 
     while let Some(token) = tokens.next() {
         match token {
-            "ponder" => ponder = true,
             "wtime" => wtime = tokens.next().and_then(|v| v.parse().ok()),
             "btime" => btime = tokens.next().and_then(|v| v.parse().ok()),
             "winc" => winc = tokens.next().and_then(|v| v.parse().ok()),
@@ -129,7 +127,7 @@ fn go(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
         }
     }
 
-    engine.search(ponder, wtime, btime, winc, binc, movetime, depth, infinite);
+    engine.search(wtime, btime, winc, binc, movetime, depth, infinite);
 }
 
 fn stop(engine: &mut Engine) {

@@ -1,7 +1,7 @@
 use shakmaty::{Bitboard, Board, Chess, Position};
 
 #[rustfmt::skip]
-static PAWN_VALUES: [i32; 64] = [
+static PAWN_VALUES: [i16; 64] = [
       0,   0,   0,   0,   0,   0,  0,   0,
      98, 134,  61,  95,  68, 126, 34, -11,
      -6,   7,  26,  31,  65,  56, 25, -20,
@@ -13,7 +13,7 @@ static PAWN_VALUES: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-static KNIGHT_VALUES: [i32; 64] = [
+static KNIGHT_VALUES: [i16; 64] = [
     -167, -89, -34, -49,  61, -97, -15, -107,
      -73, -41,  72,  36,  23,  62,   7,  -17,
      -47,  60,  37,  65,  84, 129,  73,   44,
@@ -25,7 +25,7 @@ static KNIGHT_VALUES: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-static BISHOP_VALUES: [i32; 64] = [
+static BISHOP_VALUES: [i16; 64] = [
     -29,   4, -82, -37, -25, -42,   7,  -8,
     -26,  16, -18, -13,  30,  59,  18, -47,
     -16,  37,  43,  40,  35,  50,  37,  -2,
@@ -37,7 +37,7 @@ static BISHOP_VALUES: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-static ROOK_VALUES: [i32; 64] = [
+static ROOK_VALUES: [i16; 64] = [
      32,  42,  32,  51, 63,  9,  31,  43,
      27,  32,  58,  62, 80, 67,  26,  44,
      -5,  19,  26,  36, 17, 45,  61,  16,
@@ -49,7 +49,7 @@ static ROOK_VALUES: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-static QUEEN_VALUES: [i32; 64] = [
+static QUEEN_VALUES: [i16; 64] = [
     -28,   0,  29,  12,  59,  44,  43,  45,
     -24, -39,  -5,   1, -16,  57,  28,  54,
     -13, -17,   7,   8,  29,  56,  47,  57,
@@ -61,7 +61,7 @@ static QUEEN_VALUES: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-static KING_VALUES: [i32; 64] = [
+static KING_VALUES: [i16; 64] = [
     -65,  23,  16, -15, -56, -34,   2,  13,
      29,  -1, -20,  -7,  -8,  -4, -38, -29,
      -9,  24,   2, -16, -20,   6,  22, -22,
@@ -72,25 +72,25 @@ static KING_VALUES: [i32; 64] = [
     -15,  36,  12, -54,   8, -28,  24,  14, 
 ];
 
-pub fn evaluate(board: &Chess) -> i32 {
-    let mut score: i32 = 0;
+pub fn evaluate(board: &Chess) -> i16 {
+    let mut score: i16 = 0;
 
     let bitboard: &Board = board.board();
 
-    score += 100 * (bitboard.pawns() & bitboard.white()).count() as i32; // White pawns
-    score -= 100 * (bitboard.pawns() & bitboard.black()).count() as i32; // Black pawns
+    score += 100 * (bitboard.pawns() & bitboard.white()).count() as i16; // White pawns
+    score -= 100 * (bitboard.pawns() & bitboard.black()).count() as i16; // Black pawns
 
-    score += 320 * (bitboard.bishops() & bitboard.white()).count() as i32; // White bishops
-    score -= 320 * (bitboard.bishops() & bitboard.black()).count() as i32; // Black bishops
+    score += 320 * (bitboard.bishops() & bitboard.white()).count() as i16; // White bishops
+    score -= 320 * (bitboard.bishops() & bitboard.black()).count() as i16; // Black bishops
 
-    score += 320 * (bitboard.knights() & bitboard.white()).count() as i32; // White knights
-    score -= 320 * (bitboard.knights() & bitboard.black()).count() as i32; // Black bishops
+    score += 320 * (bitboard.knights() & bitboard.white()).count() as i16; // White knights
+    score -= 320 * (bitboard.knights() & bitboard.black()).count() as i16; // Black bishops
 
-    score += 500 * (bitboard.rooks() & bitboard.white()).count() as i32; // White rooks
-    score -= 500 * (bitboard.rooks() & bitboard.black()).count() as i32; // Black rooks
+    score += 500 * (bitboard.rooks() & bitboard.white()).count() as i16; // White rooks
+    score -= 500 * (bitboard.rooks() & bitboard.black()).count() as i16; // Black rooks
 
-    score += 900 * (bitboard.queens() & bitboard.white()).count() as i32; // White queen
-    score -= 900 * (bitboard.queens() & bitboard.black()).count() as i32; // Black queen
+    score += 900 * (bitboard.queens() & bitboard.white()).count() as i16; // White queen
+    score -= 900 * (bitboard.queens() & bitboard.black()).count() as i16; // Black queen
 
     // Both bishops alive
     if (bitboard.bishops() & bitboard.white()).count() == 2 {
@@ -146,11 +146,11 @@ pub fn evaluate(board: &Chess) -> i32 {
     return score;
 }
 
-fn get_positional_value(pieces: Bitboard, piece_square_table: [i32; 64]) -> i32 {
-    let mut score: i32 = 0;
+fn get_positional_value(pieces: Bitboard, piece_square_table: [i16; 64]) -> i16 {
+    let mut score: i16 = 0;
 
     for square in pieces {
-        let square_index = u32::from(square.flip_vertical()) as usize;
+        let square_index = usize::from(square.flip_vertical());
 
         score += piece_square_table[square_index];
     }
