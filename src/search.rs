@@ -161,7 +161,7 @@ fn negamax(
     // Checkmate or stalemate
     if legal_moves.is_empty() {
         if !board.checkers().is_empty() {
-            node.score = -1000;
+            node.score = -20000;
             node.mate_in_plies = Some(0);
         }
 
@@ -216,7 +216,7 @@ fn negamax(
         return Ok(node);
     }
 
-    node.score = -10000;
+    node.score = -30000;
 
     for legal_move in legal_moves {
         *nodes += 1;
@@ -276,6 +276,8 @@ fn negamax(
                     // We have mate in x plies
                     node.mate_in_plies = Some(-child_mate_in_plies + 1);
                 }
+
+                node.terminal = true;
             } else {
                 node.mate_in_plies = None;
             }
