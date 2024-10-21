@@ -30,7 +30,7 @@ pub fn search(
     debug: Arc<AtomicBool>,
     max_depth: Option<u8>,
     plies_since_irreversible_move: u64,
-    position_history: Vec<Zobrist64>,
+    mut position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
     let mut actively_searched_node: Result<Node, &'static str>;
@@ -69,7 +69,7 @@ pub fn search(
             &searching,
             &mut searched_nodes,
             plies_since_irreversible_move,
-            &position_history,
+            &mut position_history,
             &mut transposition_table,
             hash,
         );
@@ -149,7 +149,7 @@ fn negamax(
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
     plies_since_irreversible_move: u64,
-    position_history: &Vec<Zobrist64>,
+    mut position_history: &mut Vec<Zobrist64>,
     transposition_table: &mut Vec<Option<Node>>,
     hash: u64,
 ) -> Result<Node, &'static str> {
@@ -197,7 +197,7 @@ fn negamax(
 
         let mut repetitions: u64 = 0;
 
-        for position in position_history {
+        for position in &mut *position_history {
             if *position == current_board_hash {
                 repetitions += 1;
 
@@ -246,9 +246,7 @@ fn negamax(
 
         let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
 
-        let mut position_history_clone = position_history.clone();
-
-        position_history_clone.push(child_hash);
+        position_history.push(child_hash);
 
         let plies_since_irreversible_move = if board.is_irreversible(&legal_move) {
             0
@@ -265,10 +263,12 @@ fn negamax(
             &searching,
             nodes,
             plies_since_irreversible_move,
-            &position_history_clone,
+            &mut position_history,
             transposition_table,
             child_hash.0,
         )?;
+
+        position_history.pop();
 
         if !child_node.terminal {
             node.terminal = false;
@@ -329,12 +329,34 @@ fn sort_legal_moves(
     hash: u64,
     transposition_table: &Vec<Option<Node>>,
 ) {
+    if legal_moves.len() == 0 {
+        return;
+    }
+
+    // Move best move to the front
     if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
         if let Some(ref best_move) = pv_node.best_move {
             if board.is_legal(best_move) {
                 if let Some(pos) = legal_moves.iter().position(|m| m == best_move) {
                     legal_moves.swap(0, pos);
                 }
+            }
+        }
+    }
+
+    if legal_moves.len() < 3 {
+        return;
+    }
+
+    // Selection sort
+    for move_index in 1..legal_moves.len() - 1 {
+        for inner_move_index in move_index + 1..legal_moves.len() {
+            let inner_move: &Move = &legal_moves[inner_move_index];
+
+            if inner_move.is_promotion() || inner_move.is_capture() {
+                legal_moves.swap(inner_move_index, move_index);
+
+                break;
             }
         }
     }
