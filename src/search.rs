@@ -75,7 +75,8 @@ pub fn search(
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
 
-            let pv: Vec<Move> = get_principal_variation(&mut board.clone(), depth, &transposition_table);
+            let pv: Vec<Move> =
+                get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
             if debug.load(Ordering::Relaxed) {
                 print_info(&node, start_time, searched_nodes, depth, pv);
@@ -315,7 +316,7 @@ fn get_principal_variation(
 
     let mut hash: u64;
 
-    for i in 0..depth {
+    for _ in 0..depth {
         hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
 
         if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
