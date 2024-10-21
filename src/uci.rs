@@ -112,7 +112,7 @@ fn go(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
     let mut winc: Option<u64> = None;
     let mut binc: Option<u64> = None;
     let mut movetime: Option<u64> = None;
-    let mut depth: Option<u64> = None;
+    let mut depth: Option<u8> = None;
     let mut infinite = false;
 
     while let Some(token) = tokens.next() {

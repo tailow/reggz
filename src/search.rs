@@ -2,13 +2,23 @@ use crate::evaluate;
 use shakmaty::zobrist::{Zobrist64, ZobristHash};
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
-struct Node {
-    pub score: i32,
+enum NodeType {
+    EXACT,
+    UPPERBOUND,
+    LOWERBOUND,
+}
+
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub hash: u64,
+    pub score: i16,
     pub best_move: Option<Move>,
+    pub depth: u8,
+    pub node_type: NodeType,
     pub mate_in_plies: Option<i8>,
     pub terminal: bool,
 }
@@ -18,11 +28,12 @@ pub fn search(
     searching: Arc<AtomicBool>,
     pondering: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
-    max_depth: Option<u64>,
+    max_depth: Option<u8>,
     plies_since_irreversible_move: u64,
     position_history: Vec<Zobrist64>,
+    transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
-    let mut depth: u64 = 1;
+    let mut depth: u8 = 1;
 
     let mut actively_searched_node: Result<Node, &'static str>;
     let mut fully_searched_node: Result<Node, &'static str> = Err("Incomplete search");
@@ -40,8 +51,8 @@ pub fn search(
             break;
         }
 
-        let mut alpha = -1000000;
-        let mut beta = 1000000;
+        let mut alpha = -10000;
+        let mut beta = 10000;
 
         let mut searched_nodes: u64 = 0;
 
@@ -126,10 +137,10 @@ pub fn search(
 
 fn negamax(
     board: &Chess,
-    depth: u64,
-    alpha: &mut i32,
-    beta: &mut i32,
-    color: i32,
+    depth: u8,
+    alpha: &mut i16,
+    beta: &mut i16,
+    color: i16,
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
     plies_since_irreversible_move: u64,
@@ -140,8 +151,11 @@ fn negamax(
     }
 
     let mut node: Node = Node {
+        hash: 0,
         score: 0,
         best_move: None,
+        depth: depth,
+        node_type: NodeType::EXACT,
         mate_in_plies: None,
         terminal: true,
     };
@@ -155,7 +169,7 @@ fn negamax(
     // Checkmate or stalemate
     if legal_moves.is_empty() {
         if !board.checkers().is_empty() {
-            node.score = -100000;
+            node.score = -10000;
             node.mate_in_plies = Some(0);
         }
 
@@ -192,7 +206,7 @@ fn negamax(
         return Ok(node);
     }
 
-    node.score = i32::MIN;
+    node.score = i16::MIN;
 
     for legal_move in legal_moves {
         *nodes += 1;
@@ -231,7 +245,7 @@ fn negamax(
             node.score = -child_node.score;
             node.best_move = Some(legal_move);
 
-            *alpha = i32::max(*alpha, node.score);
+            *alpha = i16::max(*alpha, node.score);
 
             if let Some(child_mate_in_plies) = child_node.mate_in_plies {
                 if child_mate_in_plies == 0 {
