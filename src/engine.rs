@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::thread;
 
-const MAX_TRANSPOSITION_TABLE_SIZE_MB: usize = 240;
+const MAX_TRANSPOSITION_TABLE_SIZE_MB: usize = 256;
 pub const TRANSPOSITION_TABLE_LENGTH: usize =
     MAX_TRANSPOSITION_TABLE_SIZE_MB * 1_000_000 / size_of::<Option<search::Node>>();
 
@@ -25,12 +25,6 @@ pub struct Engine {
 
 impl Engine {
     pub fn new() -> Engine {
-        println!(
-            "{} {}",
-            TRANSPOSITION_TABLE_LENGTH,
-            size_of::<search::Node>()
-        );
-
         Engine {
             board: Chess::new(),
             debug: Arc::new(AtomicBool::new(true)),
@@ -44,7 +38,6 @@ impl Engine {
 
     pub fn search(
         &self,
-        ponder: bool,
         white_time: Option<u64>,
         black_time: Option<u64>,
         white_increment: Option<u64>,
@@ -59,7 +52,6 @@ impl Engine {
 
         let debug_clone = Arc::clone(&self.debug);
         let searching_clone = Arc::clone(&self.searching);
-        let pondering_clone = Arc::clone(&self.pondering);
 
         let plies_since_irreversible_clone = self.plies_since_irreversible_move.clone();
         let position_history_clone = self.position_history.clone();
@@ -70,7 +62,6 @@ impl Engine {
             search::search(
                 board_clone,
                 searching_clone,
-                pondering_clone,
                 debug_clone,
                 depth,
                 plies_since_irreversible_clone,
@@ -119,6 +110,10 @@ impl Engine {
 
         self.position_history
             .push(self.board.zobrist_hash(shakmaty::EnPassantMode::Legal));
+
+        for node in self.transposition_table.lock().unwrap().iter_mut() {
+            *node = None;
+        }
     }
 
     pub fn stop(&mut self) {

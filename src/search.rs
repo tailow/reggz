@@ -1,3 +1,4 @@
+use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate;
 use shakmaty::zobrist::{Zobrist64, ZobristHash};
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position};
@@ -5,8 +6,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-#[derive(Debug, Clone)]
-enum NodeType {
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeType {
     EXACT,
     UPPERBOUND,
     LOWERBOUND,
@@ -26,21 +27,20 @@ pub struct Node {
 pub fn search(
     board: Chess,
     searching: Arc<AtomicBool>,
-    pondering: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
     max_depth: Option<u8>,
     plies_since_irreversible_move: u64,
     position_history: Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
-    let mut depth: u8 = 1;
-
     let mut actively_searched_node: Result<Node, &'static str>;
     let mut fully_searched_node: Result<Node, &'static str> = Err("Incomplete search");
 
     let start_time = SystemTime::now();
 
-    loop {
+    let mut transposition_table = transposition_table.lock().unwrap();
+
+    for depth in 1..u8::MAX {
         if let Some(max_depth) = max_depth {
             if depth > max_depth {
                 break;
@@ -56,71 +56,43 @@ pub fn search(
 
         let mut searched_nodes: u64 = 0;
 
-        if board.turn() == Color::White {
-            actively_searched_node = negamax(
-                &board,
+        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
+
+        actively_searched_node = negamax(
+            &board,
+            depth,
+            &mut alpha,
+            &mut beta,
+            if board.turn() == Color::White { 1 } else { -1 },
+            &searching,
+            &mut searched_nodes,
+            plies_since_irreversible_move,
+            &position_history,
+            &mut transposition_table,
+            hash,
+        );
+
+        if !searching.load(Ordering::Relaxed) {
+            break;
+        }
+
+        fully_searched_node = actively_searched_node;
+
+        if debug.load(Ordering::Relaxed) && fully_searched_node.is_ok() {
+            print_info(
+                fully_searched_node.clone().unwrap(),
+                start_time,
+                searched_nodes,
                 depth,
-                &mut alpha,
-                &mut beta,
-                1,
-                &searching,
-                &mut searched_nodes,
-                plies_since_irreversible_move,
-                &position_history,
-            );
-        } else {
-            actively_searched_node = negamax(
-                &board,
-                depth,
-                &mut alpha,
-                &mut beta,
-                -1,
-                &searching,
-                &mut searched_nodes,
-                plies_since_irreversible_move,
-                &position_history,
             );
         }
 
-        if searching.load(Ordering::Relaxed) {
-            fully_searched_node = actively_searched_node;
-
-            if debug.load(Ordering::Relaxed) {
-                let time_ms = start_time.elapsed().unwrap().as_millis();
-                let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
-                let score: String;
-
-                let node: Node = fully_searched_node.clone().ok().unwrap();
-
-                let mut best_move: String = String::from("none");
-
-                if let Some(bmove) = node.best_move {
-                    best_move = bmove.to_uci(CastlingMode::Standard).to_string();
-                }
-
-                if let Some(mate_in_plies) = node.mate_in_plies {
-                    score = format!(
-                        "mate {}",
-                        ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
-                    );
-                } else {
-                    score = format!("cp {}", node.score);
-                }
-
-                println!(
-                    "info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {best_move}"
-                )
-            }
-        }
-
-        // If all of the moves lead into terminal nodes, break
+        // If all of the moves lead into terminal nodes, stop searching
         if let Ok(node) = fully_searched_node.clone() {
             if node.terminal {
                 break;
             }
         }
-
-        depth += 1;
     }
 
     if let Ok(fully_searched_node) = fully_searched_node {
@@ -135,6 +107,29 @@ pub fn search(
     searching.store(false, Ordering::Relaxed);
 }
 
+fn print_info(node: Node, start_time: SystemTime, searched_nodes: u64, depth: u8) {
+    let time_ms = start_time.elapsed().unwrap().as_millis();
+    let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
+    let score: String;
+
+    let mut best_move: String = String::from("none");
+
+    if let Some(bmove) = node.best_move {
+        best_move = bmove.to_uci(CastlingMode::Standard).to_string();
+    }
+
+    if let Some(mate_in_plies) = node.mate_in_plies {
+        score = format!(
+            "mate {}",
+            ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
+        );
+    } else {
+        score = format!("cp {}", node.score);
+    }
+
+    println!("info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {best_move}");
+}
+
 fn negamax(
     board: &Chess,
     depth: u8,
@@ -145,20 +140,24 @@ fn negamax(
     nodes: &mut u64,
     plies_since_irreversible_move: u64,
     position_history: &Vec<Zobrist64>,
+    transposition_table: &mut Vec<Option<Node>>,
+    hash: u64,
 ) -> Result<Node, &'static str> {
     if !searching.load(Ordering::Relaxed) {
         return Err("Incomplete search");
     }
 
     let mut node: Node = Node {
-        hash: 0,
+        hash: hash,
         score: 0,
         best_move: None,
         depth: depth,
-        node_type: NodeType::EXACT,
+        node_type: NodeType::UPPERBOUND,
         mate_in_plies: None,
         terminal: true,
     };
+
+    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
 
     if board.is_insufficient_material() {
         return Ok(node);
@@ -169,7 +168,7 @@ fn negamax(
     // Checkmate or stalemate
     if legal_moves.is_empty() {
         if !board.checkers().is_empty() {
-            node.score = -10000;
+            node.score = -1000;
             node.mate_in_plies = Some(0);
         }
 
@@ -199,6 +198,25 @@ fn negamax(
         }
     }
 
+    // Transposition table hit
+    if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+        if tt_node.hash == hash && tt_node.depth >= depth {
+            node = tt_node.clone();
+
+            if node.node_type == NodeType::EXACT {
+                return Ok(node);
+            } else if node.node_type == NodeType::LOWERBOUND {
+                *alpha = i16::max(*alpha, node.score);
+            } else if node.node_type == NodeType::UPPERBOUND {
+                *beta = i16::min(*beta, node.score);
+            }
+
+            if alpha >= beta {
+                return Ok(node);
+            }
+        }
+    }
+
     if depth == 0 {
         node.score = color * evaluate::evaluate(&board);
         node.terminal = false;
@@ -214,6 +232,10 @@ fn negamax(
         let mut board_clone = board.clone();
 
         board_clone.play_unchecked(&legal_move);
+
+        let child_hash = board_clone
+            .zobrist_hash::<Zobrist64>(EnPassantMode::Legal)
+            .0;
 
         let mut position_history_clone = position_history.clone();
 
@@ -235,6 +257,8 @@ fn negamax(
             nodes,
             plies_since_irreversible_move,
             &position_history_clone,
+            transposition_table,
+            child_hash,
         )?;
 
         if !child_node.terminal {
@@ -245,7 +269,11 @@ fn negamax(
             node.score = -child_node.score;
             node.best_move = Some(legal_move);
 
-            *alpha = i16::max(*alpha, node.score);
+            if node.score > *alpha {
+                *alpha = node.score;
+
+                node.node_type = NodeType::EXACT;
+            }
 
             if let Some(child_mate_in_plies) = child_node.mate_in_plies {
                 if child_mate_in_plies == 0 {
@@ -258,13 +286,31 @@ fn negamax(
                     // We have mate in x plies
                     node.mate_in_plies = Some(-child_mate_in_plies + 1);
                 }
+
+                node.terminal = true;
             } else {
                 node.mate_in_plies = None;
             }
         }
 
         if node.score >= *beta {
+            node.node_type = NodeType::LOWERBOUND;
+
             break;
+        }
+    }
+
+    if searching.load(Ordering::Relaxed) {
+        if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+            if tt_node.depth < depth {
+                if node.score <= *alpha {
+                    node.node_type = NodeType::UPPERBOUND;
+                }
+
+                transposition_table[transposition_table_index] = Some(node.clone());
+            }
+        } else {
+            transposition_table[transposition_table_index] = Some(node.clone());
         }
     }
 
