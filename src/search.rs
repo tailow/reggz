@@ -53,8 +53,8 @@ pub fn search(
             break;
         }
 
-        let mut alpha = -10000;
-        let mut beta = 10000;
+        let mut alpha = i16::MIN + 1;
+        let mut beta = i16::MAX - 1;
 
         let mut searched_nodes: u64 = 0;
 
@@ -167,8 +167,6 @@ fn negamax(
         terminal: true,
     };
 
-    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
-
     if board.is_insufficient_material() {
         return Ok(node);
     }
@@ -178,7 +176,7 @@ fn negamax(
     // Checkmate or stalemate
     if legal_moves.is_empty() {
         if !board.checkers().is_empty() {
-            node.score = -20000;
+            node.score = i16::MIN + 3;
             node.mate_in_plies = Some(0);
         }
 
@@ -197,7 +195,7 @@ fn negamax(
 
         let mut repetitions: u64 = 0;
 
-        for position in &mut *position_history {
+        for position in position_history.iter().rev().step_by(2) {
             if *position == current_board_hash {
                 repetitions += 1;
 
@@ -207,6 +205,8 @@ fn negamax(
             }
         }
     }
+
+    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
 
     // Transposition table hit
     if let Some(ref tt_node) = transposition_table[transposition_table_index] {
@@ -233,7 +233,7 @@ fn negamax(
         return Ok(node);
     }
 
-    node.score = -30000;
+    node.score = i16::MIN + 2;
 
     sort_legal_moves(&mut legal_moves, board, hash, transposition_table);
 
