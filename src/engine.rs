@@ -54,7 +54,7 @@ impl Engine {
         let searching_clone = Arc::clone(&self.searching);
 
         let plies_since_irreversible_clone = self.plies_since_irreversible_move.clone();
-        let position_history_clone = self.position_history.clone();
+        let mut position_history_clone = self.position_history.clone();
 
         let transposition_table_clone = Arc::clone(&self.transposition_table);
 
@@ -65,7 +65,7 @@ impl Engine {
                 debug_clone,
                 depth,
                 plies_since_irreversible_clone,
-                position_history_clone,
+                &mut position_history_clone,
                 transposition_table_clone,
             )
         });

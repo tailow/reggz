@@ -1,7 +1,7 @@
 use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate;
 use shakmaty::zobrist::{Zobrist64, ZobristHash};
-use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position};
+use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -30,7 +30,7 @@ pub fn search(
     debug: Arc<AtomicBool>,
     max_depth: Option<u8>,
     plies_since_irreversible_move: u64,
-    position_history: Vec<Zobrist64>,
+    mut position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
     let mut actively_searched_node: Result<Node, &'static str>;
@@ -39,6 +39,8 @@ pub fn search(
     let start_time = SystemTime::now();
 
     let mut transposition_table = transposition_table.lock().unwrap();
+
+    let mut principal_variation: Vec<Move>;
 
     for depth in 1..u8::MAX {
         if let Some(max_depth) = max_depth {
@@ -51,8 +53,8 @@ pub fn search(
             break;
         }
 
-        let mut alpha = -10000;
-        let mut beta = 10000;
+        let mut alpha = i16::MIN + 1;
+        let mut beta = i16::MAX - 1;
 
         let mut searched_nodes: u64 = 0;
 
@@ -67,7 +69,7 @@ pub fn search(
             &searching,
             &mut searched_nodes,
             plies_since_irreversible_move,
-            &position_history,
+            &mut position_history,
             &mut transposition_table,
             hash,
         );
@@ -75,11 +77,17 @@ pub fn search(
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
 
-            let pv: Vec<Move> =
+            principal_variation =
                 get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
             if debug.load(Ordering::Relaxed) {
-                print_info(&node, start_time, searched_nodes, depth, pv);
+                print_info(
+                    &node,
+                    start_time,
+                    searched_nodes,
+                    depth,
+                    &principal_variation,
+                );
             }
 
             // If all of the moves lead into terminal nodes, stop searching
@@ -103,12 +111,18 @@ pub fn search(
     searching.store(false, Ordering::Relaxed);
 }
 
-fn print_info(node: &Node, start_time: SystemTime, searched_nodes: u64, depth: u8, pv: Vec<Move>) {
+fn print_info(
+    node: &Node,
+    start_time: SystemTime,
+    searched_nodes: u64,
+    depth: u8,
+    principal_variation: &Vec<Move>,
+) {
     let time_ms = start_time.elapsed().unwrap().as_millis();
     let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
     let score: String;
 
-    let pv_string: String = pv
+    let pv_string: String = principal_variation
         .iter()
         .map(|m| m.to_uci(CastlingMode::Standard).to_string())
         .collect::<Vec<String>>()
@@ -135,7 +149,7 @@ fn negamax(
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
     plies_since_irreversible_move: u64,
-    position_history: &Vec<Zobrist64>,
+    mut position_history: &mut Vec<Zobrist64>,
     transposition_table: &mut Vec<Option<Node>>,
     hash: u64,
 ) -> Result<Node, &'static str> {
@@ -153,18 +167,16 @@ fn negamax(
         terminal: true,
     };
 
-    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
-
     if board.is_insufficient_material() {
         return Ok(node);
     }
 
-    let legal_moves = board.legal_moves();
+    let mut legal_moves: MoveList = board.legal_moves();
 
     // Checkmate or stalemate
     if legal_moves.is_empty() {
         if !board.checkers().is_empty() {
-            node.score = -20000;
+            node.score = i16::MIN + 3;
             node.mate_in_plies = Some(0);
         }
 
@@ -183,7 +195,7 @@ fn negamax(
 
         let mut repetitions: u64 = 0;
 
-        for position in position_history {
+        for position in position_history.iter().rev().step_by(2) {
             if *position == current_board_hash {
                 repetitions += 1;
 
@@ -193,6 +205,8 @@ fn negamax(
             }
         }
     }
+
+    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
 
     // Transposition table hit
     if let Some(ref tt_node) = transposition_table[transposition_table_index] {
@@ -219,7 +233,9 @@ fn negamax(
         return Ok(node);
     }
 
-    node.score = -30000;
+    node.score = i16::MIN + 2;
+
+    sort_legal_moves(&mut legal_moves, board, hash, transposition_table);
 
     for legal_move in legal_moves {
         *nodes += 1;
@@ -230,9 +246,7 @@ fn negamax(
 
         let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
 
-        let mut position_history_clone = position_history.clone();
-
-        position_history_clone.push(child_hash);
+        position_history.push(child_hash);
 
         let plies_since_irreversible_move = if board.is_irreversible(&legal_move) {
             0
@@ -249,10 +263,12 @@ fn negamax(
             &searching,
             nodes,
             plies_since_irreversible_move,
-            &position_history_clone,
+            &mut position_history,
             transposition_table,
             child_hash.0,
         )?;
+
+        position_history.pop();
 
         if !child_node.terminal {
             node.terminal = false;
@@ -305,6 +321,45 @@ fn negamax(
     }
 
     return Ok(node);
+}
+
+fn sort_legal_moves(
+    legal_moves: &mut MoveList,
+    board: &Chess,
+    hash: u64,
+    transposition_table: &Vec<Option<Node>>,
+) {
+    if legal_moves.len() == 0 {
+        return;
+    }
+
+    // Move best move to the front
+    if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
+        if let Some(ref best_move) = pv_node.best_move {
+            if board.is_legal(best_move) {
+                if let Some(pos) = legal_moves.iter().position(|m| m == best_move) {
+                    legal_moves.swap(0, pos);
+                }
+            }
+        }
+    }
+
+    if legal_moves.len() < 3 {
+        return;
+    }
+
+    // Selection sort
+    for move_index in 1..legal_moves.len() - 1 {
+        for inner_move_index in move_index + 1..legal_moves.len() {
+            let inner_move: &Move = &legal_moves[inner_move_index];
+
+            if inner_move.is_promotion() || inner_move.is_capture() {
+                legal_moves.swap(inner_move_index, move_index);
+
+                break;
+            }
+        }
+    }
 }
 
 fn get_principal_variation(
