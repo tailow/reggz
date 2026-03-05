@@ -8,9 +8,9 @@ use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
-    EXACT,
-    UPPERBOUND,
-    LOWERBOUND,
+    Exact,
+    Upperbound,
+    Lowerbound,
 }
 
 #[derive(Debug, Clone)]
@@ -53,26 +53,51 @@ pub fn search(
             break;
         }
 
-        let mut alpha = i16::MIN + 1;
-        let mut beta = i16::MAX - 1;
-
         let mut searched_nodes: u64 = 0;
 
         let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
 
-        actively_searched_node = negamax(
-            &board,
-            depth,
-            &mut alpha,
-            &mut beta,
-            if board.turn() == Color::White { 1 } else { -1 },
-            &searching,
-            &mut searched_nodes,
-            plies_since_irreversible_move,
-            position_history,
-            &mut transposition_table,
-            hash,
-        );
+        let mut alpha = i16::MIN + 1;
+        let mut beta = i16::MAX - 1;
+
+        let mut lower_window = alpha;
+        let mut upper_window = beta;
+
+        if let Some(ref fully_searched_node) = fully_searched_node {
+            lower_window = fully_searched_node.score - 250;
+            upper_window = fully_searched_node.score + 250;
+        }
+
+        loop {
+            alpha = lower_window;
+            beta = upper_window;
+
+            actively_searched_node = negamax(
+                &board,
+                depth,
+                &mut alpha,
+                &mut beta,
+                if board.turn() == Color::White { 1 } else { -1 },
+                &searching,
+                &mut searched_nodes,
+                plies_since_irreversible_move,
+                position_history,
+                &mut transposition_table,
+                hash,
+            );
+
+            if let Ok(ref node) = actively_searched_node {
+                if node.score <= lower_window {
+                    lower_window = i16::MIN + 1;
+                } else if node.score >= upper_window {
+                    upper_window = i16::MAX - 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
 
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
@@ -157,7 +182,7 @@ fn negamax(
         score: 0,
         best_move: None,
         depth,
-        node_type: NodeType::UPPERBOUND,
+        node_type: NodeType::Upperbound,
         mate_in_plies: None,
         terminal: true,
     };
@@ -206,11 +231,11 @@ fn negamax(
         if tt_node.hash == hash && tt_node.depth >= depth {
             node = tt_node.clone();
 
-            if node.node_type == NodeType::EXACT {
+            if node.node_type == NodeType::Exact {
                 return Ok(node);
-            } else if node.node_type == NodeType::LOWERBOUND {
+            } else if node.node_type == NodeType::Lowerbound {
                 *alpha = i16::max(*alpha, node.score);
-            } else if node.node_type == NodeType::UPPERBOUND {
+            } else if node.node_type == NodeType::Upperbound {
                 *beta = i16::min(*beta, node.score);
             }
             if alpha >= beta {
@@ -274,7 +299,7 @@ fn negamax(
             if node.score > *alpha {
                 *alpha = node.score;
 
-                node.node_type = NodeType::EXACT;
+                node.node_type = NodeType::Exact;
             }
 
             if let Some(child_mate_in_plies) = child_node.mate_in_plies {
@@ -296,7 +321,7 @@ fn negamax(
         }
 
         if node.score >= *beta {
-            node.node_type = NodeType::LOWERBOUND;
+            node.node_type = NodeType::Lowerbound;
 
             break;
         }
