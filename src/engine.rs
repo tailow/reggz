@@ -1,8 +1,5 @@
 use crate::{search, timer};
-use shakmaty::{
-    zobrist::{Zobrist64, ZobristHash},
-    Chess, Color, Position,
-};
+use shakmaty::{zobrist::Zobrist64, Chess, Color, Position};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -53,7 +50,7 @@ impl Engine {
         let debug_clone = Arc::clone(&self.debug);
         let searching_clone = Arc::clone(&self.searching);
 
-        let plies_since_irreversible_clone = self.plies_since_irreversible_move.clone();
+        let plies_since_irreversible_clone = self.plies_since_irreversible_move;
         let mut position_history_clone = self.position_history.clone();
 
         let transposition_table_clone = Arc::clone(&self.transposition_table);
@@ -73,9 +70,7 @@ impl Engine {
         let searching_clone = Arc::clone(&self.searching);
 
         if !infinite {
-            if move_time.is_some() {
-                let move_time = move_time.unwrap();
-
+            if let Some(move_time) = move_time {
                 thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
             } else if self.board.turn() == Color::White && white_time.is_some() {
                 let remaining = white_time.unwrap();

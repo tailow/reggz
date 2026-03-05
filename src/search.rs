@@ -1,6 +1,6 @@
 use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate;
-use shakmaty::zobrist::{Zobrist64, ZobristHash};
+use shakmaty::zobrist::Zobrist64;
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -242,13 +242,13 @@ fn negamax(
 
         let mut board_clone = board.clone();
 
-        board_clone.play_unchecked(&legal_move);
+        board_clone.play_unchecked(legal_move);
 
         let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
 
         position_history.push(child_hash);
 
-        let plies_since_irreversible_move = if board.is_irreversible(&legal_move) {
+        let plies_since_irreversible_move = if board.is_irreversible(legal_move) {
             0
         } else {
             plies_since_irreversible_move + 1
@@ -335,9 +335,9 @@ fn sort_legal_moves(
 
     // Move best move to the front
     if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
-        if let Some(ref best_move) = pv_node.best_move {
+        if let Some(best_move) = pv_node.best_move {
             if board.is_legal(best_move) {
-                if let Some(pos) = legal_moves.iter().position(|m| m == best_move) {
+                if let Some(pos) = legal_moves.iter().position(|m| *m == best_move) {
                     legal_moves.swap(0, pos);
                 }
             }
@@ -375,7 +375,7 @@ fn get_principal_variation(
         hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
 
         if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
-            if let Some(ref best_move) = pv_node.best_move {
+            if let Some(best_move) = pv_node.best_move {
                 if board.is_legal(best_move) {
                     pv.push(best_move.clone());
 

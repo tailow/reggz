@@ -1,8 +1,8 @@
 use crate::engine::Engine;
-use shakmaty::{fen::Fen, uci::UciMove, zobrist::ZobristHash, EnPassantMode, Move, Position};
+use shakmaty::{fen::Fen, uci::UciMove, EnPassantMode, Move, Position};
 use std::{io, str::SplitWhitespace};
 
-pub fn input_loop(mut engine: &mut Engine) {
+pub fn input_loop(engine: &mut Engine) {
     let mut input: String = String::new();
 
     loop {
@@ -19,13 +19,13 @@ pub fn input_loop(mut engine: &mut Engine) {
         while let Some(token) = tokens.next() {
             match token {
                 "uci" => uci(),
-                "debug" => debug(&mut tokens, &mut engine),
+                "debug" => debug(&mut tokens, engine),
                 "isready" => isready(),
-                "position" => position(&mut tokens, &mut engine),
-                "ucinewgame" => ucinewgame(&mut engine),
-                "go" => go(&mut tokens, &mut engine),
-                "stop" => stop(&mut engine),
-                "ponderhit" => ponderhit(&mut engine),
+                "position" => position(&mut tokens, engine),
+                "ucinewgame" => ucinewgame(engine),
+                "go" => go(&mut tokens, engine),
+                "stop" => stop(engine),
+                "ponderhit" => ponderhit(engine),
                 "quit" => quit(),
                 _ => {}
             }
@@ -41,7 +41,7 @@ fn debug(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
     match tokens.next() {
         Some("on") => engine.debug(&true),
         Some("off") => engine.debug(&false),
-        _ => return,
+        _ => (),
     }
 }
 
@@ -90,13 +90,13 @@ fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
                 Err(_) => return,
             };
 
-            engine.board.play_unchecked(&new_move);
+            engine.board.play_unchecked(new_move);
 
             engine
                 .position_history
                 .push(engine.board.zobrist_hash(EnPassantMode::Legal));
 
-            if engine.board.is_irreversible(&new_move) {
+            if engine.board.is_irreversible(new_move) {
                 engine.plies_since_irreversible_move = 0;
             } else {
                 engine.plies_since_irreversible_move += 1;
