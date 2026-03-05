@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 shakmaty = "0.30.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
