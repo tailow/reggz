@@ -30,7 +30,7 @@ pub fn search(
     debug: Arc<AtomicBool>,
     max_depth: Option<u8>,
     plies_since_irreversible_move: u64,
-    mut position_history: &mut Vec<Zobrist64>,
+    position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
     let mut actively_searched_node: Result<Node, &'static str>;
@@ -69,7 +69,7 @@ pub fn search(
             &searching,
             &mut searched_nodes,
             plies_since_irreversible_move,
-            &mut position_history,
+            position_history,
             &mut transposition_table,
             hash,
         );
@@ -101,10 +101,7 @@ pub fn search(
 
     if let Some(fully_searched_node) = fully_searched_node {
         if let Some(best_move) = fully_searched_node.best_move {
-            println!(
-                "bestmove {}",
-                best_move.to_uci(CastlingMode::Standard).to_string()
-            )
+            println!("bestmove {}", best_move.to_uci(CastlingMode::Standard))
         }
     }
 
@@ -116,7 +113,7 @@ fn print_info(
     start_time: SystemTime,
     searched_nodes: u64,
     depth: u8,
-    principal_variation: &Vec<Move>,
+    principal_variation: &[Move],
 ) {
     let time_ms = start_time.elapsed().unwrap().as_millis();
     let nodes_per_second: u64 = searched_nodes / (time_ms + 1) as u64 * 1000;
@@ -129,10 +126,7 @@ fn print_info(
         .join(" ");
 
     if let Some(mate_in_plies) = node.mate_in_plies {
-        score = format!(
-            "mate {}",
-            ((mate_in_plies as f64 / 2.0).ceil() as i8).to_string()
-        );
+        score = format!("mate {}", ((mate_in_plies as f64 / 2.0).ceil() as i8));
     } else {
         score = format!("cp {}", node.score);
     }
@@ -140,6 +134,7 @@ fn print_info(
     println!("info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {pv_string}");
 }
 
+#[inline(always)]
 fn negamax(
     board: &Chess,
     depth: u8,
@@ -149,7 +144,7 @@ fn negamax(
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
     plies_since_irreversible_move: u64,
-    mut position_history: &mut Vec<Zobrist64>,
+    position_history: &mut Vec<Zobrist64>,
     transposition_table: &mut Vec<Option<Node>>,
     hash: u64,
 ) -> Result<Node, &'static str> {
@@ -158,10 +153,10 @@ fn negamax(
     }
 
     let mut node: Node = Node {
-        hash: hash,
+        hash,
         score: 0,
         best_move: None,
-        depth: depth,
+        depth,
         node_type: NodeType::UPPERBOUND,
         mate_in_plies: None,
         terminal: true,
@@ -183,10 +178,8 @@ fn negamax(
         return Ok(node);
     }
     // 50-move rule
-    else {
-        if board.halfmoves() >= 100 {
-            return Ok(node);
-        }
+    else if board.halfmoves() >= 100 {
+        return Ok(node);
     }
 
     // Threefold repetition
@@ -227,7 +220,7 @@ fn negamax(
     }
 
     if depth == 0 {
-        node.score = color * evaluate::evaluate(&board);
+        node.score = color * evaluate::evaluate(board);
         node.terminal = false;
 
         return Ok(node);
@@ -260,10 +253,10 @@ fn negamax(
             &mut -(*beta),
             &mut -(*alpha),
             -color,
-            &searching,
+            searching,
             nodes,
             plies_since_irreversible_move,
-            &mut position_history,
+            position_history,
             transposition_table,
             child_hash.0,
         )?;
@@ -320,16 +313,17 @@ fn negamax(
         }
     }
 
-    return Ok(node);
+    Ok(node)
 }
 
+#[inline(always)]
 fn sort_legal_moves(
     legal_moves: &mut MoveList,
     board: &Chess,
     hash: u64,
-    transposition_table: &Vec<Option<Node>>,
+    transposition_table: &[Option<Node>],
 ) {
-    if legal_moves.len() == 0 {
+    if legal_moves.is_empty() {
         return;
     }
 
@@ -365,7 +359,7 @@ fn sort_legal_moves(
 fn get_principal_variation(
     board: &mut Chess,
     depth: u8,
-    transposition_table: &Vec<Option<Node>>,
+    transposition_table: &[Option<Node>],
 ) -> Vec<Move> {
     let mut pv: Vec<Move> = Vec::new();
 
@@ -377,7 +371,7 @@ fn get_principal_variation(
         if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
             if let Some(best_move) = pv_node.best_move {
                 if board.is_legal(best_move) {
-                    pv.push(best_move.clone());
+                    pv.push(best_move);
 
                     board.play_unchecked(best_move);
                 } else {
@@ -391,5 +385,5 @@ fn get_principal_variation(
         }
     }
 
-    return pv;
+    pv
 }

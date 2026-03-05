@@ -144,6 +144,7 @@ static KING_VALUES_LATE: [i16; 64] = [
     -53, -34, -21, -11, -28, -14, -24, -43
 ];
 
+#[inline(always)]
 pub fn evaluate(board: &Chess) -> i16 {
     let mut score: i16 = 0;
 
@@ -267,9 +268,10 @@ pub fn evaluate(board: &Chess) -> i16 {
         );
     }
 
-    return score;
+    score
 }
 
+#[inline(always)]
 fn get_positional_value(pieces: Bitboard, piece_square_table: [i16; 64]) -> i16 {
     let mut score: i16 = 0;
 
@@ -279,5 +281,5 @@ fn get_positional_value(pieces: Bitboard, piece_square_table: [i16; 64]) -> i16 
         score += piece_square_table[square_index];
     }
 
-    return score;
+    score
 }

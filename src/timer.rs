@@ -13,17 +13,14 @@ pub fn search_for_ms(move_time: u64, searching: Arc<AtomicBool>) {
     let duration = Duration::from_millis(move_time);
 
     while searching.load(Ordering::Relaxed) {
-        match start_time.elapsed() {
-            Ok(elapsed) => {
-                if elapsed > duration {
-                    searching.store(false, Ordering::Relaxed);
+        if let Ok(elapsed) = start_time.elapsed() {
+            if elapsed > duration {
+                searching.store(false, Ordering::Relaxed);
 
-                    return;
-                }
-
-                thread::sleep(Duration::from_millis(10));
+                return;
             }
-            _ => (),
+
+            thread::sleep(Duration::from_millis(10));
         }
     }
 }
