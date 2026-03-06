@@ -95,6 +95,7 @@ pub fn search(
             }
         }
 
+        // Maybe don't discard ?
         if let Ok(node) = actively_searched_node {
             fully_searched_node = Some(node.clone());
 
@@ -155,6 +156,7 @@ fn print_info(
     println!("info depth {depth} score {score} time {time_ms} nodes {searched_nodes} nps {nodes_per_second} pv {pv_string}");
 }
 
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn negamax(
     board: &Chess,
@@ -378,6 +380,7 @@ fn sort_legal_moves(
     }
 }
 
+// Should probably switch to a different method
 fn get_principal_variation(
     board: &mut Chess,
     depth: u8,
