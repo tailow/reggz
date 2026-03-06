@@ -15,7 +15,6 @@ pub struct Engine {
     debug: Arc<AtomicBool>,
     searching: Arc<AtomicBool>,
     pondering: Arc<AtomicBool>,
-    pub plies_since_irreversible_move: u64,
     pub position_history: Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<search::Node>>>>,
 }
@@ -27,7 +26,6 @@ impl Engine {
             debug: Arc::new(AtomicBool::new(true)),
             searching: Arc::new(AtomicBool::new(false)),
             pondering: Arc::new(AtomicBool::new(false)),
-            plies_since_irreversible_move: 0,
             position_history: Vec::with_capacity(512),
             transposition_table: Arc::new(Mutex::new(vec![None; TRANSPOSITION_TABLE_LENGTH])),
         }
@@ -50,7 +48,6 @@ impl Engine {
         let debug_clone = Arc::clone(&self.debug);
         let searching_clone = Arc::clone(&self.searching);
 
-        let plies_since_irreversible_clone = self.plies_since_irreversible_move;
         let mut position_history_clone = self.position_history.clone();
 
         let transposition_table_clone = Arc::clone(&self.transposition_table);
@@ -61,7 +58,6 @@ impl Engine {
                 searching_clone,
                 debug_clone,
                 depth,
-                plies_since_irreversible_clone,
                 &mut position_history_clone,
                 transposition_table_clone,
             )
@@ -100,7 +96,6 @@ impl Engine {
 
         self.board = Chess::new();
 
-        self.plies_since_irreversible_move = 0;
         self.position_history.clear();
 
         self.position_history

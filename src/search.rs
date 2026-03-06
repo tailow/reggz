@@ -15,7 +15,7 @@ pub enum NodeType {
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    pub hash: u64,
+    pub hash: Zobrist64,
     pub score: i16,
     pub best_move: Option<Move>,
     pub depth: u8,
@@ -29,7 +29,6 @@ pub fn search(
     searching: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
     max_depth: Option<u8>,
-    plies_since_irreversible_move: u64,
     position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
@@ -55,13 +54,10 @@ pub fn search(
 
         let mut searched_nodes: u64 = 0;
 
-        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
+        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
 
-        let mut alpha = i16::MIN + 1;
-        let mut beta = i16::MAX - 1;
-
-        let mut lower_window = alpha;
-        let mut upper_window = beta;
+        let mut lower_window = i16::MIN + 1;
+        let mut upper_window = i16::MAX - 1;
 
         if let Some(ref fully_searched_node) = fully_searched_node {
             lower_window = fully_searched_node.score - 250;
@@ -69,8 +65,8 @@ pub fn search(
         }
 
         loop {
-            alpha = lower_window;
-            beta = upper_window;
+            let mut alpha = lower_window;
+            let mut beta = upper_window;
 
             actively_searched_node = negamax(
                 &board,
@@ -80,7 +76,6 @@ pub fn search(
                 if board.turn() == Color::White { 1 } else { -1 },
                 &searching,
                 &mut searched_nodes,
-                plies_since_irreversible_move,
                 position_history,
                 &mut transposition_table,
                 hash,
@@ -168,10 +163,9 @@ fn negamax(
     color: i16,
     searching: &Arc<AtomicBool>,
     nodes: &mut u64,
-    plies_since_irreversible_move: u64,
     position_history: &mut Vec<Zobrist64>,
     transposition_table: &mut Vec<Option<Node>>,
-    hash: u64,
+    hash: Zobrist64,
 ) -> Result<Node, &'static str> {
     if !searching.load(Ordering::Relaxed) {
         return Err("Incomplete search");
@@ -206,25 +200,20 @@ fn negamax(
     else if board.halfmoves() >= 100 {
         return Ok(node);
     }
-
     // Threefold repetition
-    if plies_since_irreversible_move >= 8 {
-        let current_board_hash: Zobrist64 = board.zobrist_hash(EnPassantMode::Legal);
+    let mut repetitions: u8 = 0;
 
-        let mut repetitions: u64 = 0;
+    for position in position_history.iter().rev().step_by(2) {
+        if *position == hash {
+            repetitions += 1;
 
-        for position in position_history.iter().rev().step_by(2) {
-            if *position == current_board_hash {
-                repetitions += 1;
-
-                if repetitions > 2 {
-                    return Ok(node);
-                }
+            if repetitions > 1 {
+                return Ok(node);
             }
         }
     }
 
-    let transposition_table_index: usize = hash as usize % TRANSPOSITION_TABLE_LENGTH;
+    let transposition_table_index: usize = hash.0 as usize % TRANSPOSITION_TABLE_LENGTH;
 
     // Transposition table hit
     if let Some(ref tt_node) = transposition_table[transposition_table_index] {
@@ -260,17 +249,13 @@ fn negamax(
 
         let mut board_clone = board.clone();
 
+        let child_hash = board_clone
+            .update_zobrist_hash(hash, legal_move, EnPassantMode::Legal)
+            .unwrap_or_else(|| board_clone.zobrist_hash(EnPassantMode::Legal));
+
         board_clone.play_unchecked(legal_move);
 
-        let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
-
         position_history.push(child_hash);
-
-        let plies_since_irreversible_move = if board.is_irreversible(legal_move) {
-            0
-        } else {
-            plies_since_irreversible_move + 1
-        };
 
         let child_node = negamax(
             &board_clone,
@@ -280,10 +265,9 @@ fn negamax(
             -color,
             searching,
             nodes,
-            plies_since_irreversible_move,
             position_history,
             transposition_table,
-            child_hash.0,
+            child_hash,
         )?;
 
         position_history.pop();
@@ -345,7 +329,7 @@ fn negamax(
 fn sort_legal_moves(
     legal_moves: &mut MoveList,
     board: &Chess,
-    hash: u64,
+    hash: Zobrist64,
     transposition_table: &[Option<Node>],
 ) {
     if legal_moves.is_empty() {
@@ -353,7 +337,7 @@ fn sort_legal_moves(
     }
 
     // Move best move to the front
-    if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
+    if let Some(ref pv_node) = transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH] {
         if let Some(best_move) = pv_node.best_move {
             if board.is_legal(best_move) {
                 if let Some(pos) = legal_moves.iter().position(|m| *m == best_move) {
@@ -388,12 +372,13 @@ fn get_principal_variation(
 ) -> Vec<Move> {
     let mut pv: Vec<Move> = Vec::new();
 
-    let mut hash: u64;
+    let mut hash: Zobrist64;
 
     for _ in 0..depth {
-        hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
+        hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
 
-        if let Some(ref pv_node) = transposition_table[hash as usize % TRANSPOSITION_TABLE_LENGTH] {
+        if let Some(ref pv_node) = transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
+        {
             if let Some(best_move) = pv_node.best_move {
                 if board.is_legal(best_move) {
                     pv.push(best_move);

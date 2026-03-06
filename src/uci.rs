@@ -95,12 +95,6 @@ fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
             engine
                 .position_history
                 .push(engine.board.zobrist_hash(EnPassantMode::Legal));
-
-            if engine.board.is_irreversible(new_move) {
-                engine.plies_since_irreversible_move = 0;
-            } else {
-                engine.plies_since_irreversible_move += 1;
-            }
         }
     }
 }
