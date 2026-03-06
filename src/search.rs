@@ -249,11 +249,19 @@ fn negamax(
 
         let mut board_clone = board.clone();
 
-        let child_hash = board_clone
-            .update_zobrist_hash(hash, legal_move, EnPassantMode::Legal)
-            .unwrap_or_else(|| board_clone.zobrist_hash(EnPassantMode::Legal));
+        let child_hash;
 
-        board_clone.play_unchecked(legal_move);
+        if let Some(new_child_hash) =
+            board_clone.update_zobrist_hash(hash, legal_move, EnPassantMode::Legal)
+        {
+            child_hash = new_child_hash;
+
+            board_clone.play_unchecked(legal_move);
+        } else {
+            board_clone.play_unchecked(legal_move);
+
+            child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
+        }
 
         position_history.push(child_hash);
 
