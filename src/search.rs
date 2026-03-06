@@ -32,8 +32,17 @@ pub fn search(
     position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
-    let mut actively_searched_node: Result<Node, &'static str>;
-    let mut fully_searched_node: Option<Node> = None;
+    let mut current_node: Node = Node {
+        hash: Zobrist64::from(0),
+        score: 0,
+        best_move: None,
+        depth: 0,
+        node_type: NodeType::Upperbound,
+        mate_in_plies: None,
+        terminal: true,
+    };
+
+    let mut previous_node: Option<Node> = None;
 
     let start_time = SystemTime::now();
 
@@ -41,17 +50,13 @@ pub fn search(
 
     let mut principal_variation: Vec<Move>;
 
-    for depth in 1..u8::MAX {
-        if let Some(max_depth) = max_depth {
-            if depth > max_depth {
-                break;
-            }
-        }
+    let mut depth = u8::MAX;
 
-        if !searching.load(Ordering::Relaxed) {
-            break;
-        }
+    if let Some(max_depth) = max_depth {
+        depth = max_depth;
+    }
 
+    for depth in 1..depth {
         let mut searched_nodes: u64 = 0;
 
         let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
@@ -59,16 +64,19 @@ pub fn search(
         let mut lower_window = i16::MIN + 1;
         let mut upper_window = i16::MAX - 1;
 
-        if let Some(ref fully_searched_node) = fully_searched_node {
-            lower_window = fully_searched_node.score - 250;
-            upper_window = fully_searched_node.score + 250;
+        previous_node = Some(current_node.clone());
+
+        // Aspiration windows
+        if let Some(ref previous_node) = previous_node {
+            lower_window = previous_node.score - 250;
+            upper_window = previous_node.score + 250;
         }
 
         loop {
             let mut alpha = lower_window;
             let mut beta = upper_window;
 
-            actively_searched_node = negamax(
+            current_node = negamax(
                 &board,
                 depth,
                 0,
@@ -82,48 +90,45 @@ pub fn search(
                 hash,
             );
 
-            if let Ok(ref node) = actively_searched_node {
-                if node.score <= lower_window {
-                    lower_window = i16::MIN + 1;
-                } else if node.score >= upper_window {
-                    upper_window = i16::MAX - 1;
-                } else {
-                    break;
-                }
+            if current_node.score <= lower_window {
+                lower_window = i16::MIN + 1;
+            } else if current_node.score >= upper_window {
+                upper_window = i16::MAX - 1;
             } else {
                 break;
             }
         }
 
-        // Maybe don't discard ?
-        if let Ok(node) = actively_searched_node {
-            fully_searched_node = Some(node.clone());
+        // If search is stopped
+        if !searching.load(Ordering::Relaxed) {
+            break;
+        }
 
-            principal_variation =
-                get_principal_variation(&mut board.clone(), depth, &transposition_table);
+        principal_variation =
+            get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
-            if debug.load(Ordering::Relaxed) {
-                print_info(
-                    &node,
-                    start_time,
-                    searched_nodes,
-                    depth,
-                    &principal_variation,
-                );
-            }
+        if debug.load(Ordering::Relaxed) {
+            print_info(
+                &current_node,
+                start_time,
+                searched_nodes,
+                depth,
+                &principal_variation,
+            );
+        }
 
-            // If all of the moves lead into terminal nodes, stop searching
-            if node.terminal {
-                break;
-            }
-        } else {
+        // If all of the moves lead into terminal nodes, stop searching
+        if current_node.terminal {
             break;
         }
     }
 
-    if let Some(fully_searched_node) = fully_searched_node {
-        if let Some(best_move) = fully_searched_node.best_move {
-            println!("bestmove {}", best_move.to_uci(CastlingMode::Standard))
+    if let Some(best_move) = current_node.best_move {
+        println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
+        println!("incomplete search");
+    } else if let Some(previous_node) = previous_node {
+        if let Some(best_move) = previous_node.best_move {
+            println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
         }
     }
 
@@ -170,11 +175,7 @@ fn negamax(
     position_history: &mut Vec<Zobrist64>,
     transposition_table: &mut Vec<Option<Node>>,
     hash: Zobrist64,
-) -> Result<Node, &'static str> {
-    if !searching.load(Ordering::Relaxed) {
-        return Err("Incomplete search");
-    }
-
+) -> Node {
     let mut node: Node = Node {
         hash,
         score: 0,
@@ -186,7 +187,7 @@ fn negamax(
     };
 
     if board.is_insufficient_material() {
-        return Ok(node);
+        return node;
     }
 
     let mut legal_moves: MoveList = board.legal_moves();
@@ -198,11 +199,11 @@ fn negamax(
             node.mate_in_plies = Some(0);
         }
 
-        return Ok(node);
+        return node;
     }
     // 50-move rule
     else if board.halfmoves() >= 100 {
-        return Ok(node);
+        return node;
     }
     // Repetition
     if ply > 0 {
@@ -213,7 +214,7 @@ fn negamax(
                 repetitions += 1;
 
                 if repetitions >= 2 {
-                    return Ok(node);
+                    return node;
                 }
             }
         }
@@ -227,14 +228,14 @@ fn negamax(
             node = tt_node.clone();
 
             if node.node_type == NodeType::Exact {
-                return Ok(node);
+                return node;
             } else if node.node_type == NodeType::Lowerbound {
                 *alpha = i16::max(*alpha, node.score);
             } else if node.node_type == NodeType::Upperbound {
                 *beta = i16::min(*beta, node.score);
             }
             if alpha >= beta {
-                return Ok(node);
+                return node;
             }
         }
     }
@@ -243,7 +244,7 @@ fn negamax(
         node.score = color * evaluate::evaluate(board);
         node.terminal = false;
 
-        return Ok(node);
+        return node;
     }
 
     node.score = i16::MIN + 2;
@@ -283,7 +284,7 @@ fn negamax(
             position_history,
             transposition_table,
             child_hash,
-        )?;
+        );
 
         position_history.pop();
 
@@ -324,6 +325,11 @@ fn negamax(
 
             break;
         }
+
+        // Search stopped early
+        if !searching.load(Ordering::Relaxed) {
+            break;
+        }
     }
 
     // Store node in the transposition table
@@ -337,7 +343,7 @@ fn negamax(
         }
     }
 
-    Ok(node)
+    node
 }
 
 #[inline(always)]
