@@ -71,6 +71,7 @@ pub fn search(
             actively_searched_node = negamax(
                 &board,
                 depth,
+                0,
                 &mut alpha,
                 &mut beta,
                 if board.turn() == Color::White { 1 } else { -1 },
@@ -158,6 +159,7 @@ fn print_info(
 fn negamax(
     board: &Chess,
     depth: u8,
+    ply: u16,
     alpha: &mut i16,
     beta: &mut i16,
     color: i16,
@@ -200,15 +202,17 @@ fn negamax(
     else if board.halfmoves() >= 100 {
         return Ok(node);
     }
-    // Threefold repetition
-    let mut repetitions: u8 = 0;
+    // Repetition
+    if ply > 0 {
+        let mut repetitions: u8 = 0;
 
-    for position in position_history.iter().rev().step_by(2) {
-        if *position == hash {
-            repetitions += 1;
+        for position in position_history.iter().rev().step_by(2) {
+            if *position == hash {
+                repetitions += 1;
 
-            if repetitions > 1 {
-                return Ok(node);
+                if repetitions >= 2 {
+                    return Ok(node);
+                }
             }
         }
     }
@@ -268,6 +272,7 @@ fn negamax(
         let child_node = negamax(
             &board_clone,
             depth - 1,
+            ply + 1,
             &mut -(*beta),
             &mut -(*alpha),
             -color,
