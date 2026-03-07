@@ -99,11 +99,6 @@ pub fn search(
             }
         }
 
-        // If search is stopped
-        if !searching.load(Ordering::Relaxed) {
-            break;
-        }
-
         principal_variation =
             get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
@@ -121,11 +116,15 @@ pub fn search(
         if current_node.terminal {
             break;
         }
+
+        // If search is stopped
+        if !searching.load(Ordering::Relaxed) {
+            break;
+        }
     }
 
     if let Some(best_move) = current_node.best_move {
         println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
-        println!("incomplete search");
     } else if let Some(previous_node) = previous_node {
         if let Some(best_move) = previous_node.best_move {
             println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
