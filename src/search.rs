@@ -32,16 +32,7 @@ pub fn search(
     position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
-    let mut current_node: Node = Node {
-        hash: Zobrist64::from(0),
-        score: 0,
-        best_move: None,
-        depth: 0,
-        node_type: NodeType::Upperbound,
-        mate_in_plies: None,
-        terminal: true,
-    };
-
+    let mut current_node: Option<Node> = None;
     let mut previous_node: Option<Node> = None;
 
     let start_time = SystemTime::now();
@@ -64,7 +55,10 @@ pub fn search(
         let mut lower_window = i16::MIN + 1;
         let mut upper_window = i16::MAX - 1;
 
-        previous_node = Some(current_node.clone());
+        // If search is stopped
+        if !searching.load(Ordering::Relaxed) {
+            break;
+        }
 
         // Aspiration windows
         if let Some(ref previous_node) = previous_node {
@@ -76,7 +70,7 @@ pub fn search(
             let mut alpha = lower_window;
             let mut beta = upper_window;
 
-            current_node = negamax(
+            current_node = Some(negamax(
                 &board,
                 depth,
                 0,
@@ -88,43 +82,46 @@ pub fn search(
                 position_history,
                 &mut transposition_table,
                 hash,
-            );
+            ));
 
-            if current_node.score <= lower_window {
-                lower_window = i16::MIN + 1;
-            } else if current_node.score >= upper_window {
-                upper_window = i16::MAX - 1;
-            } else {
-                break;
+            if let Some(ref current_node) = current_node {
+                if current_node.score <= lower_window {
+                    lower_window = i16::MIN + 1;
+                } else if current_node.score >= upper_window {
+                    upper_window = i16::MAX - 1;
+                } else {
+                    break;
+                }
             }
         }
 
-        principal_variation =
-            get_principal_variation(&mut board.clone(), depth, &transposition_table);
+        if let Some(ref current_node) = current_node {
+            previous_node = Some(current_node.clone());
 
-        if debug.load(Ordering::Relaxed) {
-            print_info(
-                &current_node,
-                start_time,
-                searched_nodes,
-                depth,
-                &principal_variation,
-            );
-        }
+            principal_variation =
+                get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
-        // If all of the moves lead into terminal nodes, stop searching
-        if current_node.terminal {
-            break;
-        }
+            if debug.load(Ordering::Relaxed) {
+                print_info(
+                    current_node,
+                    start_time,
+                    searched_nodes,
+                    depth,
+                    &principal_variation,
+                );
+            }
 
-        // If search is stopped
-        if !searching.load(Ordering::Relaxed) {
-            break;
+            // If all of the moves lead into terminal nodes, stop searching
+            if current_node.terminal {
+                break;
+            }
         }
     }
 
-    if let Some(best_move) = current_node.best_move {
-        println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
+    if let Some(current_node) = current_node {
+        if let Some(best_move) = current_node.best_move {
+            println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
+        }
     } else if let Some(previous_node) = previous_node {
         if let Some(best_move) = previous_node.best_move {
             println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
