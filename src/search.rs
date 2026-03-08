@@ -18,7 +18,7 @@ pub struct Node {
     pub hash: Zobrist64,
     pub score: i16,
     pub best_move: Option<Move>,
-    pub depth: u8,
+    pub depth: i16,
     pub node_type: NodeType,
     pub mate_in_plies: Option<i8>,
     pub terminal: bool,
@@ -28,7 +28,7 @@ pub fn search(
     board: Chess,
     searching: Arc<AtomicBool>,
     debug: Arc<AtomicBool>,
-    max_depth: Option<u8>,
+    max_depth: Option<i16>,
     position_history: &mut Vec<Zobrist64>,
     transposition_table: Arc<Mutex<Vec<Option<Node>>>>,
 ) {
@@ -41,7 +41,7 @@ pub fn search(
 
     let mut principal_variation: Vec<Move>;
 
-    for depth in 1..u8::MAX {
+    for depth in 1..i16::MAX {
         if let Some(max_depth) = max_depth {
             if depth > max_depth {
                 break;
@@ -134,7 +134,7 @@ fn print_info(
     node: &Node,
     start_time: SystemTime,
     searched_nodes: u64,
-    depth: u8,
+    depth: i16,
     principal_variation: &[Move],
 ) {
     let time_ms = start_time.elapsed().unwrap().as_millis();
@@ -160,7 +160,7 @@ fn print_info(
 #[inline(always)]
 fn negamax(
     board: &Chess,
-    depth: u8,
+    depth: i16,
     ply: u16,
     alpha: &mut i16,
     beta: &mut i16,
@@ -239,12 +239,43 @@ fn negamax(
         }
     }
 
-    if depth == 0 {
+    if depth <= 0 {
         node.score = color * evaluate::evaluate(board);
         node.terminal = false;
 
         return Ok(node);
     }
+
+    /*
+    if !board.is_check()
+        && (board.board().black() | board.board().white()
+            != board.board().pawns() | board.board().kings())
+    {
+        let r: i16 = 4;
+
+        let board_clone = board.clone().swap_turn().unwrap();
+
+        let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
+
+        let child_node = negamax(
+            board,
+            depth - r,
+            ply + 1,
+            &mut -(*beta),
+            &mut -(*beta - 1),
+            -color,
+            searching,
+            nodes,
+            position_history,
+            transposition_table,
+            child_hash,
+        )?;
+
+        if child_node.score >= *beta {
+            return Ok(child_node);
+        }
+    }
+    */
 
     node.score = i16::MIN + 2;
 
@@ -383,7 +414,7 @@ fn sort_legal_moves(
 // Should probably switch to a different method
 fn get_principal_variation(
     board: &mut Chess,
-    depth: u8,
+    depth: i16,
     transposition_table: &[Option<Node>],
 ) -> Vec<Move> {
     let mut pv: Vec<Move> = Vec::new();

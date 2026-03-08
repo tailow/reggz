@@ -38,7 +38,7 @@ impl Engine {
         white_increment: Option<u64>,
         black_increment: Option<u64>,
         move_time: Option<u64>,
-        depth: Option<u8>,
+        depth: Option<i16>,
         infinite: bool,
     ) {
         self.searching.store(true, Ordering::Relaxed);
