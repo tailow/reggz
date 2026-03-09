@@ -47,19 +47,25 @@ impl Engine {
 
         let debug_clone = Arc::clone(&self.debug);
         let searching_clone = Arc::clone(&self.searching);
+        let pondering_clone = Arc::clone(&self.searching);
 
         let mut position_history_clone = self.position_history.clone();
 
-        let transposition_table_clone = Arc::clone(&self.transposition_table);
+        let mut transposition_table_clone = Arc::clone(&self.transposition_table);
+
+        let mut searcher = search::Searcher {
+            nodes: 0,
+            searching: searching_clone,
+            _pondering: pondering_clone,
+            debug: debug_clone,
+            max_depth: depth,
+        };
 
         thread::spawn(move || {
-            search::search(
+            searcher.search(
                 board_clone,
-                searching_clone,
-                debug_clone,
-                depth,
                 &mut position_history_clone,
-                transposition_table_clone,
+                &mut transposition_table_clone,
             )
         });
 
