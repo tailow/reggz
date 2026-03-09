@@ -53,13 +53,13 @@ impl Searcher {
 
         let mut previous_best_move: Option<Move> = None;
 
-        for depth in 1..i16::MAX {
-            if let Some(max_depth) = self.max_depth {
-                if depth > max_depth {
-                    break;
-                }
-            }
+        let mut max_depth: i16 = i16::MAX;
 
+        if let Some(custom_max_depth) = self.max_depth {
+            max_depth = custom_max_depth;
+        }
+
+        for depth in 1..max_depth {
             if !self.searching.load(Ordering::Relaxed) {
                 break;
             }
@@ -121,8 +121,6 @@ impl Searcher {
                 if self.debug.load(Ordering::Relaxed) {
                     self.print_info(score, start_time, depth, &principal_variation);
                 }
-            } else {
-                break;
             }
         }
 
@@ -240,34 +238,32 @@ impl Searcher {
             return Some(color * evaluate::evaluate(board));
         }
 
+        // Nullmove pruning
         /*
-        Nullmove pruning
         if !board.is_check()
             && (board.board().black() | board.board().white()
                 != board.board().pawns() | board.board().kings())
         {
-            let r: i16 = 4;
+            let reduction: i16 = 4;
 
             let board_clone = board.clone().swap_turn().unwrap();
 
             let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
 
-            let child_node = negamax(
+            let child_score = -self.negamax(
                 board,
-                depth - r,
+                depth - reduction,
                 ply + 1,
                 &mut -(*beta),
                 &mut -(*beta - 1),
                 -color,
-                searching,
-                nodes,
                 position_history,
-                transposition_table,
                 child_hash,
+                transposition_table,
             )?;
 
-            if child_node.score >= *beta {
-                return Ok(child_node);
+            if child_score >= *beta {
+                return Some(child_score);
             }
         }
         */
@@ -351,13 +347,7 @@ impl Searcher {
 
         // Store node in the transposition table
         if self.searching.load(Ordering::Relaxed) {
-            if let Some(ref tt_node) = transposition_table[transposition_table_index] {
-                if tt_node.depth < depth {
-                    transposition_table[transposition_table_index] = Some(node.clone());
-                }
-            } else {
-                transposition_table[transposition_table_index] = Some(node.clone());
-            }
+            transposition_table[transposition_table_index] = Some(node.clone());
         }
 
         Some(score)
