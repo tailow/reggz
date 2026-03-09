@@ -30,6 +30,9 @@ pub struct Searcher {
     pub debug: Arc<AtomicBool>,
 }
 
+pub const MATE: i16 = 31000;
+pub const MATE_MAX_PLIES: i16 = 128;
+
 impl Searcher {
     pub fn search(
         &mut self,
@@ -48,7 +51,8 @@ impl Searcher {
 
         let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
 
-        // TODO: Root search
+        let mut previous_best_move: Option<Move> = None;
+
         for depth in 1..i16::MAX {
             if let Some(max_depth) = self.max_depth {
                 if depth > max_depth {
@@ -86,10 +90,8 @@ impl Searcher {
 
                 if let Some(score) = score {
                     if score <= lower_window {
-                        println!("Missed window");
                         lower_window = i16::MIN + 1;
                     } else if score >= upper_window {
-                        println!("Missed window");
                         upper_window = i16::MAX - 1;
                     } else {
                         break;
@@ -103,31 +105,31 @@ impl Searcher {
             if let Some(score) = score {
                 previous_score = Some(score);
 
+                if let Some(ref pv_node) =
+                    transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
+                {
+                    if let Some(best_move) = pv_node.best_move {
+                        if board.is_legal(best_move) {
+                            previous_best_move = Some(best_move);
+                        }
+                    }
+                }
+
                 principal_variation =
                     self.get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
                 if self.debug.load(Ordering::Relaxed) {
                     self.print_info(score, start_time, depth, &principal_variation);
                 }
-
-                // If all of the moves lead into terminal nodes, stop searching
-                // TODO: Fix
-                /*
-                if node.terminal {
-                    break;
-                }
-                */
             } else {
                 break;
             }
         }
 
-        if let Some(ref pv_node) = transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
-        {
-            if let Some(best_move) = pv_node.best_move {
-                if board.is_legal(best_move) {
-                    println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
-                }
+        // TODO: Use proper PV for getting best move
+        if let Some(best_move) = previous_best_move {
+            if board.is_legal(best_move) {
+                println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
             }
         }
 
@@ -150,15 +152,17 @@ impl Searcher {
             .collect::<Vec<String>>()
             .join(" ");
 
-        /*
-                if false {
-                    //score_string = format!("mate {}", ((mate_in_plies as f64 / 2.0).ceil() as i8));
-                } else {
-                    score_string = format!("cp {}", score);
-                }
-        */
+        let score_string = if score > MATE - MATE_MAX_PLIES {
+            let mate_in_plies = MATE - score;
 
-        let score_string = format!("cp {}", score);
+            format!("mate {}", ((mate_in_plies as f64 / 2.0).ceil() as i8))
+        } else if score < -MATE + MATE_MAX_PLIES {
+            let mate_in_plies = -MATE - score;
+
+            format!("mate {}", ((mate_in_plies as f64 / 2.0).ceil() as i8))
+        } else {
+            format!("cp {}", score)
+        };
 
         println!("info depth {depth} score {score_string} time {time_ms} nodes {0} nps {nodes_per_second} pv {pv_string}", self.nodes);
 
@@ -192,8 +196,7 @@ impl Searcher {
         // Checkmate or stalemate
         if legal_moves.is_empty() {
             if !board.checkers().is_empty() {
-                // TODO: Fix mate
-                return Some(i16::MIN + 3);
+                return Some(-MATE);
             }
 
             return Some(0);
@@ -238,12 +241,11 @@ impl Searcher {
         }
 
         if depth <= 0 {
-            //node.terminal = false;
-
             return Some(color * evaluate::evaluate(board));
         }
 
         /*
+        Nullmove pruning
         if !board.is_check()
             && (board.board().black() | board.board().white()
                 != board.board().pawns() | board.board().kings())
@@ -320,12 +322,6 @@ impl Searcher {
 
             position_history.pop();
 
-            /*
-            if !child_node.terminal {
-                node.terminal = false;
-            }
-            */
-
             if -child_score > score {
                 score = -child_score;
                 node.best_move = Some(legal_move);
@@ -336,25 +332,12 @@ impl Searcher {
                     node.node_type = NodeType::Exact;
                 }
 
-                //TODO: Implement mate
-                /*
-                                if let Some(child_mate_in_plies) = child_node.mate_in_plies {
-                                    if child_mate_in_plies == 0 {
-                                        // We have mate in one
-                                        node.mate_in_plies = Some(1);
-                                    } else if child_mate_in_plies > 0 {
-                                        // Opponent has mate in x plies
-                                        node.mate_in_plies = Some(-child_mate_in_plies - 1);
-                                    } else if child_mate_in_plies < 0 {
-                                        // We have mate in x plies
-                                        node.mate_in_plies = Some(-child_mate_in_plies + 1);
-                                    }
-
-                                    //node.terminal = true;
-                                } else {
-                                    node.mate_in_plies = None;
-                                }
-                */
+                // If move leads to mate
+                if score > MATE - MATE_MAX_PLIES {
+                    score -= 1;
+                } else if score < -MATE + MATE_MAX_PLIES {
+                    score += 1;
+                }
             }
 
             if score >= *beta {
