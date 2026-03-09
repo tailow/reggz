@@ -183,10 +183,6 @@ impl Searcher {
     ) -> Option<i16> {
         let mut score = i16::MIN + 1;
 
-        if !self.searching.load(Ordering::Relaxed) {
-            return None;
-        }
-
         if board.is_insufficient_material() {
             return Some(0);
         }
@@ -344,6 +340,10 @@ impl Searcher {
                 node.node_type = NodeType::Lowerbound;
 
                 break;
+            }
+
+            if !self.searching.load(Ordering::Relaxed) {
+                return None;
             }
         }
 
