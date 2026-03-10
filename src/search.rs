@@ -347,7 +347,13 @@ impl Searcher {
 
         // Store node in the transposition table
         if self.searching.load(Ordering::Relaxed) {
-            transposition_table[transposition_table_index] = Some(node.clone());
+            if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+                if tt_node.depth < depth {
+                    transposition_table[transposition_table_index] = Some(node.clone());
+                }
+            } else {
+                transposition_table[transposition_table_index] = Some(node.clone());
+            }
         }
 
         Some(score)
