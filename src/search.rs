@@ -399,15 +399,15 @@ impl Searcher {
                     continue;
                 }
 
-                let mut capture_score: i16 = i16::MIN;
+                let mut capture_score: i16;
 
                 match inner_move.role() {
-                    Role::Pawn => capture_score -= 100,
-                    Role::Knight => capture_score -= 300,
-                    Role::Bishop => capture_score -= 350,
-                    Role::Rook => capture_score -= 500,
-                    Role::Queen => capture_score -= 900,
-                    Role::King => capture_score -= 2000,
+                    Role::Pawn => capture_score = -100,
+                    Role::Knight => capture_score = -300,
+                    Role::Bishop => capture_score = -350,
+                    Role::Rook => capture_score = -500,
+                    Role::Queen => capture_score = -900,
+                    Role::King => capture_score = -2000,
                 }
 
                 match inner_move.capture().unwrap() {
@@ -419,7 +419,7 @@ impl Searcher {
                     Role::King => continue,
                 }
 
-                if capture_score > best_capture_score && capture_score >= 0 {
+                if capture_score > best_capture_score {
                     best_capture_score = capture_score;
                     best_capture_index = Some(inner_move_index);
                 }
