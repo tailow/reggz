@@ -364,7 +364,7 @@ impl Searcher {
 
             let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
 
-            let child_score = -self.negamax(
+            let move_score = -self.negamax(
                 board,
                 depth - reduction,
                 ply + 1,
@@ -376,8 +376,8 @@ impl Searcher {
                 transposition_table,
             )?;
 
-            if child_score >= *beta {
-                return Some(child_score);
+            if move_score >= *beta {
+                return Some(move_score);
             }
         }
         */
@@ -414,9 +414,11 @@ impl Searcher {
 
             position_history.push(child_hash);
 
+            let extension: i16 = if board_clone.is_check() { 1 } else { 0 };
+
             let move_score = -self.negamax(
                 &board_clone,
-                depth - 1,
+                depth - 1 + extension,
                 ply + 1,
                 &mut -(*beta),
                 &mut -(*alpha),
