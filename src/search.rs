@@ -202,14 +202,14 @@ impl Searcher {
 
         let evaluation = color * evaluate(board);
 
-        let mut best_value: i16 = evaluation;
+        let mut best_score: i16 = evaluation;
 
-        if best_value >= *beta {
-            return Some(best_value);
+        if best_score >= *beta {
+            return Some(best_score);
         }
 
-        if best_value > *alpha {
-            *alpha = best_value;
+        if best_score > *alpha {
+            *alpha = best_score;
         }
 
         for capture_move in board.capture_moves() {
@@ -234,7 +234,7 @@ impl Searcher {
 
             position_history.push(child_hash);
 
-            let child_score = -self.quiesce(
+            let move_score = -self.quiesce(
                 &board_clone,
                 &mut -(*beta),
                 &mut -(*alpha),
@@ -247,14 +247,21 @@ impl Searcher {
 
             position_history.pop();
 
-            if child_score >= *beta {
-                return Some(child_score);
+            if move_score >= *beta {
+                return Some(move_score);
             }
-            if child_score > best_value {
-                best_value = child_score;
+            if move_score > best_score {
+                best_score = move_score;
+
+                // If move leads to mate
+                if best_score > MATE - MATE_MAX_PLIES {
+                    best_score -= 1;
+                } else if best_score < -MATE + MATE_MAX_PLIES {
+                    best_score += 1;
+                }
             }
-            if child_score > *alpha {
-                *alpha = child_score;
+            if move_score > *alpha {
+                *alpha = move_score;
             }
 
             if !self.searching.load(Ordering::Relaxed) {
@@ -262,7 +269,7 @@ impl Searcher {
             }
         }
 
-        Some(best_value)
+        Some(best_score)
     }
 
     fn negamax(
@@ -277,7 +284,7 @@ impl Searcher {
         hash: Zobrist64,
         transposition_table: &mut [Option<Node>],
     ) -> Option<i16> {
-        let mut score = i16::MIN + 1;
+        let mut best_score = i16::MIN + 1;
 
         if board.is_insufficient_material() {
             return Some(0);
@@ -380,7 +387,7 @@ impl Searcher {
             depth,
             hash,
             node_type: NodeType::Upperbound,
-            score,
+            score: best_score,
         };
 
         self.sort_legal_moves(&mut legal_moves, board, hash, transposition_table);
@@ -407,7 +414,7 @@ impl Searcher {
 
             position_history.push(child_hash);
 
-            let child_score = -self.negamax(
+            let move_score = -self.negamax(
                 &board_clone,
                 depth - 1,
                 ply + 1,
@@ -421,8 +428,8 @@ impl Searcher {
 
             position_history.pop();
 
-            if child_score > score {
-                score = child_score;
+            if move_score > best_score {
+                best_score = move_score;
                 node.best_move = Some(legal_move);
 
                 // Best root move
@@ -430,21 +437,21 @@ impl Searcher {
                     self.best_root_move = Some(legal_move);
                 }
 
-                if score > *alpha {
-                    *alpha = score;
+                if best_score > *alpha {
+                    *alpha = best_score;
 
                     node.node_type = NodeType::Exact;
                 }
 
                 // If move leads to mate
-                if score > MATE - MATE_MAX_PLIES {
-                    score -= 1;
-                } else if score < -MATE + MATE_MAX_PLIES {
-                    score += 1;
+                if best_score > MATE - MATE_MAX_PLIES {
+                    best_score -= 1;
+                } else if best_score < -MATE + MATE_MAX_PLIES {
+                    best_score += 1;
                 }
             }
 
-            if score >= *beta {
+            if best_score >= *beta {
                 node.node_type = NodeType::Lowerbound;
 
                 break;
@@ -455,7 +462,7 @@ impl Searcher {
             }
         }
 
-        node.score = score;
+        node.score = best_score;
 
         // Store node in the transposition table
         if self.searching.load(Ordering::Relaxed) {
@@ -468,7 +475,7 @@ impl Searcher {
             }
         }
 
-        Some(score)
+        Some(best_score)
     }
 
     fn sort_legal_moves(
