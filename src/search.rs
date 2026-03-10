@@ -28,6 +28,7 @@ pub struct Searcher {
     pub _pondering: Arc<AtomicBool>,
     pub max_depth: Option<i16>,
     pub debug: Arc<AtomicBool>,
+    pub best_root_move: Option<Move>,
 }
 
 pub const MATE: i16 = 31000;
@@ -43,6 +44,8 @@ impl Searcher {
         let mut score: Option<i16>;
         let mut previous_score: Option<i16> = None;
 
+        let mut best_move: Option<Move> = None;
+
         let start_time = SystemTime::now();
 
         let mut transposition_table = transposition_table.lock().unwrap();
@@ -50,8 +53,6 @@ impl Searcher {
         let mut principal_variation: Vec<Move>;
 
         let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
-
-        let mut previous_best_move: Option<Move> = None;
 
         let mut max_depth: i16 = i16::MAX;
 
@@ -104,16 +105,7 @@ impl Searcher {
             // Maybe don't discard ?
             if let Some(score) = score {
                 previous_score = Some(score);
-
-                if let Some(ref pv_node) =
-                    transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
-                {
-                    if let Some(best_move) = pv_node.best_move {
-                        if board.is_legal(best_move) {
-                            previous_best_move = Some(best_move);
-                        }
-                    }
-                }
+                best_move = self.best_root_move;
 
                 principal_variation =
                     self.get_principal_variation(&mut board.clone(), depth, &transposition_table);
@@ -124,11 +116,8 @@ impl Searcher {
             }
         }
 
-        // TODO: Use proper PV for getting best move
-        if let Some(best_move) = previous_best_move {
-            if board.is_legal(best_move) {
-                println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
-            }
+        if let Some(best_move) = best_move {
+            println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
         }
 
         self.searching.store(false, Ordering::Relaxed);
@@ -318,6 +307,11 @@ impl Searcher {
                 score = -child_score;
                 node.best_move = Some(legal_move);
 
+                // Best root move
+                if ply == 0 {
+                    self.best_root_move = Some(legal_move);
+                }
+
                 if score > *alpha {
                     *alpha = score;
 
@@ -348,7 +342,7 @@ impl Searcher {
         // Store node in the transposition table
         if self.searching.load(Ordering::Relaxed) {
             if let Some(ref tt_node) = transposition_table[transposition_table_index] {
-                if tt_node.depth < depth {
+                if tt_node.depth <= depth {
                     transposition_table[transposition_table_index] = Some(node.clone());
                 }
             } else {
@@ -388,51 +382,15 @@ impl Searcher {
 
         // Selection sort
         for move_index in 1..legal_moves.len() - 1 {
-            let mut best_capture_index: Option<usize> = None;
-            let mut best_capture_score: i16 = i16::MIN;
-
             for inner_move_index in move_index + 1..legal_moves.len() {
                 let inner_move: &Move = &legal_moves[inner_move_index];
 
                 // Promotions first
-                if inner_move.is_promotion() {
+                if inner_move.is_promotion() || inner_move.is_capture() {
                     legal_moves.swap(inner_move_index, move_index);
 
                     break;
                 }
-
-                if !inner_move.is_capture() {
-                    continue;
-                }
-
-                let mut capture_score: i16;
-
-                match inner_move.role() {
-                    Role::Pawn => capture_score = -100,
-                    Role::Knight => capture_score = -300,
-                    Role::Bishop => capture_score = -350,
-                    Role::Rook => capture_score = -500,
-                    Role::Queen => capture_score = -900,
-                    Role::King => capture_score = -2000,
-                }
-
-                match inner_move.capture().unwrap() {
-                    Role::Pawn => capture_score += 100,
-                    Role::Knight => capture_score += 300,
-                    Role::Bishop => capture_score += 350,
-                    Role::Rook => capture_score += 500,
-                    Role::Queen => capture_score += 900,
-                    Role::King => continue,
-                }
-
-                if capture_score > best_capture_score {
-                    best_capture_score = capture_score;
-                    best_capture_index = Some(inner_move_index);
-                }
-            }
-
-            if let Some(best_capture_index) = best_capture_index {
-                legal_moves.swap(best_capture_index, move_index);
             }
         }
     }

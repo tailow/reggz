@@ -59,6 +59,7 @@ impl Engine {
             _pondering: pondering_clone,
             debug: debug_clone,
             max_depth: depth,
+            best_root_move: None,
         };
 
         thread::spawn(move || {
