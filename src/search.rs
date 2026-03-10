@@ -167,7 +167,7 @@ impl Searcher {
         ply: u16,
         hash: Zobrist64,
         position_history: &mut Vec<Zobrist64>,
-        transposition_table: &mut [Option<Node>],
+        transposition_table: &[Option<Node>],
     ) -> Option<i16> {
         if board.is_insufficient_material() {
             return Some(0);
@@ -212,7 +212,11 @@ impl Searcher {
             *alpha = best_score;
         }
 
-        for capture_move in board.capture_moves() {
+        let mut capture_moves = board.capture_moves();
+
+        self.sort_legal_moves(&mut capture_moves, board, hash, transposition_table);
+
+        for capture_move in capture_moves {
             self.nodes += 1;
 
             let mut board_clone = board.clone();
@@ -503,23 +507,33 @@ impl Searcher {
             }
         }
 
-        if legal_moves.len() < 3 {
-            return;
-        }
-
-        // Selection sort
-        for move_index in 1..legal_moves.len() - 1 {
-            for inner_move_index in move_index + 1..legal_moves.len() {
-                let inner_move: &Move = &legal_moves[inner_move_index];
-
-                // Promotions first
-                if inner_move.is_promotion() || inner_move.is_capture() {
-                    legal_moves.swap(inner_move_index, move_index);
-
-                    break;
-                }
+        // Score each move for sorting
+        legal_moves[1..].sort_by_cached_key(|m| {
+            if m.is_promotion() {
+                return 0i16; // Promotions first
             }
-        }
+            if m.is_capture() {
+                // MVV-LVA: victim value - attacker value
+                let victim = match m.capture().unwrap() {
+                    Role::Pawn => 100,
+                    Role::Knight => 300,
+                    Role::Bishop => 350,
+                    Role::Rook => 500,
+                    Role::Queen => 900,
+                    Role::King => return 0, // shouldn't happen
+                };
+                let attacker = match m.role() {
+                    Role::Pawn => 100,
+                    Role::Knight => 300,
+                    Role::Bishop => 350,
+                    Role::Rook => 500,
+                    Role::Queen => 900,
+                    Role::King => 2000,
+                };
+                return -(victim - attacker + 1000); // negative = higher priority; +1000 ensures captures beat quiets
+            }
+            1000i16 // quiet moves last
+        });
     }
 
     // Should probably switch to a different method
