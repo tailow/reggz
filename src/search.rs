@@ -1,5 +1,5 @@
 use crate::engine::TRANSPOSITION_TABLE_LENGTH;
-use crate::evaluate;
+use crate::evaluate::evaluate;
 use shakmaty::zobrist::Zobrist64;
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position, Role};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,8 +69,8 @@ impl Searcher {
             let mut upper_window = i16::MAX - 1;
 
             if let Some(previous_score) = previous_score {
-                lower_window = previous_score - 250;
-                upper_window = previous_score + 250;
+                lower_window = previous_score - 50;
+                upper_window = previous_score + 50;
             }
 
             '_aspiration: loop {
@@ -91,9 +91,11 @@ impl Searcher {
 
                 if let Some(score) = score {
                     if score <= lower_window {
-                        lower_window = i16::MIN + 1;
+                        lower_window = score - 100;
+                        println!("window miss");
                     } else if score >= upper_window {
-                        upper_window = i16::MAX - 1;
+                        upper_window = score + 100;
+                        println!("window miss");
                     } else {
                         break;
                     }
@@ -154,6 +156,113 @@ impl Searcher {
         println!("info depth {depth} score {score_string} time {time_ms} nodes {0} nps {nodes_per_second} pv {pv_string}", self.nodes);
 
         self.nodes = 0;
+    }
+
+    fn quiesce(
+        &mut self,
+        board: &Chess,
+        alpha: &mut i16,
+        beta: &mut i16,
+        color: i16,
+        ply: u16,
+        hash: Zobrist64,
+        position_history: &mut Vec<Zobrist64>,
+        transposition_table: &mut [Option<Node>],
+    ) -> Option<i16> {
+        if board.is_insufficient_material() {
+            return Some(0);
+        }
+
+        // Checkmate or stalemate
+        if board.legal_moves().is_empty() {
+            if !board.checkers().is_empty() {
+                return Some(-MATE);
+            }
+
+            return Some(0);
+        }
+        // 50-move rule
+        else if board.halfmoves() >= 100 {
+            return Some(0);
+        }
+        // Repetition
+        if ply > 0 {
+            let mut repetitions: u8 = 0;
+
+            for position in position_history.iter().rev().step_by(2) {
+                if *position == hash {
+                    repetitions += 1;
+
+                    if repetitions >= 2 {
+                        return Some(0);
+                    }
+                }
+            }
+        }
+
+        let evaluation = color * evaluate(board);
+
+        let mut best_value: i16 = evaluation;
+
+        if best_value >= *beta {
+            return Some(best_value);
+        }
+
+        if best_value > *alpha {
+            *alpha = best_value;
+        }
+
+        for capture_move in board.capture_moves() {
+            self.nodes += 1;
+
+            let mut board_clone = board.clone();
+
+            let child_hash;
+
+            // TODO: Unmake move
+            if let Some(new_child_hash) =
+                board_clone.update_zobrist_hash(hash, capture_move, EnPassantMode::Legal)
+            {
+                child_hash = new_child_hash;
+
+                board_clone.play_unchecked(capture_move);
+            } else {
+                board_clone.play_unchecked(capture_move);
+
+                child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
+            }
+
+            position_history.push(child_hash);
+
+            let child_score = -self.quiesce(
+                &board_clone,
+                &mut -(*beta),
+                &mut -(*alpha),
+                -color,
+                ply + 1,
+                child_hash,
+                position_history,
+                transposition_table,
+            )?;
+
+            position_history.pop();
+
+            if child_score >= *beta {
+                return Some(child_score);
+            }
+            if child_score > best_value {
+                best_value = child_score;
+            }
+            if child_score > *alpha {
+                *alpha = child_score;
+            }
+
+            if !self.searching.load(Ordering::Relaxed) {
+                return None;
+            }
+        }
+
+        Some(best_value)
     }
 
     fn negamax(
@@ -224,7 +333,16 @@ impl Searcher {
         }
 
         if depth <= 0 {
-            return Some(color * evaluate::evaluate(board));
+            return self.quiesce(
+                board,
+                alpha,
+                beta,
+                color,
+                ply,
+                hash,
+                position_history,
+                transposition_table,
+            );
         }
 
         // Nullmove pruning
@@ -289,7 +407,7 @@ impl Searcher {
 
             position_history.push(child_hash);
 
-            let child_score = self.negamax(
+            let child_score = -self.negamax(
                 &board_clone,
                 depth - 1,
                 ply + 1,
@@ -303,8 +421,8 @@ impl Searcher {
 
             position_history.pop();
 
-            if -child_score > score {
-                score = -child_score;
+            if child_score > score {
+                score = child_score;
                 node.best_move = Some(legal_move);
 
                 // Best root move
