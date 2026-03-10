@@ -1,7 +1,7 @@
 use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate;
 use shakmaty::zobrist::Zobrist64;
-use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position};
+use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position, Role};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -382,14 +382,51 @@ impl Searcher {
 
         // Selection sort
         for move_index in 1..legal_moves.len() - 1 {
+            let mut best_capture_index: Option<usize> = None;
+            let mut best_capture_score: i16 = i16::MIN;
+
             for inner_move_index in move_index + 1..legal_moves.len() {
                 let inner_move: &Move = &legal_moves[inner_move_index];
 
-                if inner_move.is_promotion() || inner_move.is_capture() {
+                // Promotions first
+                if inner_move.is_promotion() {
                     legal_moves.swap(inner_move_index, move_index);
 
                     break;
                 }
+
+                if !inner_move.is_capture() {
+                    continue;
+                }
+
+                let mut capture_score: i16 = i16::MIN;
+
+                match inner_move.role() {
+                    Role::Pawn => capture_score -= 100,
+                    Role::Knight => capture_score -= 300,
+                    Role::Bishop => capture_score -= 350,
+                    Role::Rook => capture_score -= 500,
+                    Role::Queen => capture_score -= 900,
+                    Role::King => capture_score -= 2000,
+                }
+
+                match inner_move.capture().unwrap() {
+                    Role::Pawn => capture_score += 100,
+                    Role::Knight => capture_score += 300,
+                    Role::Bishop => capture_score += 350,
+                    Role::Rook => capture_score += 500,
+                    Role::Queen => capture_score += 900,
+                    Role::King => continue,
+                }
+
+                if capture_score > best_capture_score && capture_score >= 0 {
+                    best_capture_score = capture_score;
+                    best_capture_index = Some(inner_move_index);
+                }
+            }
+
+            if let Some(best_capture_index) = best_capture_index {
+                legal_moves.swap(best_capture_index, move_index);
             }
         }
     }
