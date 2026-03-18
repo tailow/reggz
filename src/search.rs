@@ -43,7 +43,6 @@ impl Searcher {
         let mut score: Option<i16>;
         let mut previous_score: Option<i16> = None;
 
-        //let mut best_move: Option<Move> = None;
         let mut ponder_move: Option<Move> = None;
 
         let start_time = SystemTime::now();
@@ -92,10 +91,8 @@ impl Searcher {
                 if let Some(score) = score {
                     if score <= lower_window {
                         lower_window = score - 100;
-                        println!("window miss");
                     } else if score >= upper_window {
                         upper_window = score + 100;
-                        println!("window miss");
                     } else {
                         break;
                     }
@@ -104,9 +101,9 @@ impl Searcher {
                 }
             }
 
+            // TODO: Fix
             if let Some(score) = score {
                 previous_score = Some(score);
-                //best_move = self.best_root_move;
 
                 principal_variation =
                     self.get_principal_variation(&mut board.clone(), depth, &transposition_table);
@@ -463,7 +460,7 @@ impl Searcher {
                 break;
             }
 
-            if !self.searching.load(Ordering::Relaxed) {
+            if !self.searching.load(Ordering::Relaxed) && ply > 0 {
                 return None;
             }
         }
