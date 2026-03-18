@@ -25,7 +25,6 @@ pub struct Node {
 pub struct Searcher {
     pub nodes: u64,
     pub searching: Arc<AtomicBool>,
-    pub _pondering: Arc<AtomicBool>,
     pub max_depth: Option<i16>,
     pub debug: Arc<AtomicBool>,
     pub best_root_move: Option<Move>,
@@ -45,6 +44,7 @@ impl Searcher {
         let mut previous_score: Option<i16> = None;
 
         let mut best_move: Option<Move> = None;
+        let mut ponder_move: Option<Move> = None;
 
         let start_time = SystemTime::now();
 
@@ -112,6 +112,10 @@ impl Searcher {
                 principal_variation =
                     self.get_principal_variation(&mut board.clone(), depth, &transposition_table);
 
+                if principal_variation.len() > 1 {
+                    ponder_move = Some(principal_variation[1]);
+                }
+
                 if self.debug.load(Ordering::Relaxed) {
                     self.print_info(score, start_time, depth, &principal_variation);
                 }
@@ -119,7 +123,15 @@ impl Searcher {
         }
 
         if let Some(best_move) = best_move {
-            println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
+            if let Some(ponder_move) = ponder_move {
+                println!(
+                    "bestmove {} ponder {}",
+                    best_move.to_uci(CastlingMode::Standard),
+                    ponder_move.to_uci(CastlingMode::Standard)
+                );
+            } else {
+                println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
+            }
         }
 
         self.searching.store(false, Ordering::Relaxed);

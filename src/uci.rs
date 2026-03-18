@@ -117,6 +117,7 @@ fn go(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
             "movetime" => movetime = tokens.next().and_then(|v| v.parse().ok()),
             "depth" => depth = tokens.next().and_then(|v| v.parse().ok()),
             "infinite" => infinite = true,
+            "ponder" => infinite = true,
             _ => {}
         }
     }
