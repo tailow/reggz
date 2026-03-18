@@ -176,7 +176,7 @@ impl Searcher {
         alpha: &mut i16,
         beta: &mut i16,
         color: i16,
-        ply: u16,
+        ply: i16,
         hash: Zobrist64,
         position_history: &mut Vec<Zobrist64>,
         transposition_table: &[Option<Node>],
@@ -188,7 +188,7 @@ impl Searcher {
         // Checkmate or stalemate
         if board.legal_moves().is_empty() {
             if !board.checkers().is_empty() {
-                return Some(-MATE);
+                return Some(-MATE + ply);
             }
 
             return Some(0);
@@ -263,21 +263,16 @@ impl Searcher {
 
             position_history.pop();
 
-            if move_score >= *beta {
-                return Some(move_score);
-            }
             if move_score > best_score {
                 best_score = move_score;
 
-                // If move leads to mate
-                if best_score > MATE - MATE_MAX_PLIES {
-                    best_score -= 1;
-                } else if best_score < -MATE + MATE_MAX_PLIES {
-                    best_score += 1;
+                if move_score > *alpha {
+                    *alpha = move_score;
                 }
             }
-            if move_score > *alpha {
-                *alpha = move_score;
+
+            if move_score >= *beta {
+                break;
             }
 
             if !self.searching.load(Ordering::Relaxed) {
@@ -292,7 +287,7 @@ impl Searcher {
         &mut self,
         board: &Chess,
         depth: i16,
-        ply: u16,
+        ply: i16,
         alpha: &mut i16,
         beta: &mut i16,
         color: i16,
@@ -311,7 +306,7 @@ impl Searcher {
         // Checkmate or stalemate
         if legal_moves.is_empty() {
             if !board.checkers().is_empty() {
-                return Some(-MATE);
+                return Some(-MATE + ply);
             }
 
             return Some(0);
@@ -335,6 +330,19 @@ impl Searcher {
             }
         }
 
+        if depth <= 0 {
+            return self.quiesce(
+                board,
+                alpha,
+                beta,
+                color,
+                ply,
+                hash,
+                position_history,
+                transposition_table,
+            );
+        }
+
         let transposition_table_index: usize = hash.0 as usize % TRANSPOSITION_TABLE_LENGTH;
 
         // Transposition table hit
@@ -353,19 +361,6 @@ impl Searcher {
                     return Some(node.score);
                 }
             }
-        }
-
-        if depth <= 0 {
-            return self.quiesce(
-                board,
-                alpha,
-                beta,
-                color,
-                ply,
-                hash,
-                position_history,
-                transposition_table,
-            );
         }
 
         // Nullmove pruning
@@ -448,6 +443,7 @@ impl Searcher {
 
             if move_score > best_score {
                 best_score = move_score;
+
                 node.best_move = Some(legal_move);
 
                 // Best root move
@@ -455,21 +451,14 @@ impl Searcher {
                     self.best_root_move = Some(legal_move);
                 }
 
-                if best_score > *alpha {
-                    *alpha = best_score;
+                if move_score > *alpha {
+                    *alpha = move_score;
 
                     node.node_type = NodeType::Exact;
                 }
-
-                // If move leads to mate
-                if best_score > MATE - MATE_MAX_PLIES {
-                    best_score -= 1;
-                } else if best_score < -MATE + MATE_MAX_PLIES {
-                    best_score += 1;
-                }
             }
 
-            if best_score >= *beta {
+            if move_score >= *beta {
                 node.node_type = NodeType::Lowerbound;
 
                 break;
