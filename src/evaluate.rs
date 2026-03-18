@@ -157,7 +157,7 @@ pub fn evaluate(board: &Chess) -> i16 {
     score -= 320 * (bitboard.bishops() & bitboard.black()).count() as i16; // Black bishops
 
     score += 320 * (bitboard.knights() & bitboard.white()).count() as i16; // White knights
-    score -= 320 * (bitboard.knights() & bitboard.black()).count() as i16; // Black bishops
+    score -= 320 * (bitboard.knights() & bitboard.black()).count() as i16; // Black knights
 
     score += 500 * (bitboard.rooks() & bitboard.white()).count() as i16; // White rooks
     score -= 500 * (bitboard.rooks() & bitboard.black()).count() as i16; // Black rooks

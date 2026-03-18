@@ -43,7 +43,7 @@ impl Searcher {
         let mut score: Option<i16>;
         let mut previous_score: Option<i16> = None;
 
-        let mut best_move: Option<Move> = None;
+        //let mut best_move: Option<Move> = None;
         let mut ponder_move: Option<Move> = None;
 
         let start_time = SystemTime::now();
@@ -104,10 +104,9 @@ impl Searcher {
                 }
             }
 
-            // Maybe don't discard ?
             if let Some(score) = score {
                 previous_score = Some(score);
-                best_move = self.best_root_move;
+                //best_move = self.best_root_move;
 
                 principal_variation =
                     self.get_principal_variation(&mut board.clone(), depth, &transposition_table);
@@ -122,7 +121,7 @@ impl Searcher {
             }
         }
 
-        if let Some(best_move) = best_move {
+        if let Some(best_move) = self.best_root_move {
             if let Some(ponder_move) = ponder_move {
                 println!(
                     "bestmove {} ponder {}",
@@ -369,7 +368,7 @@ impl Searcher {
             && (board.board().black() | board.board().white()
                 != board.board().pawns() | board.board().kings())
         {
-            let reduction: i16 = 4;
+            let reduction: i16 = 2;
 
             let board_clone = board.clone().swap_turn().unwrap();
 
