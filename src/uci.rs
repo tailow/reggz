@@ -34,7 +34,9 @@ pub fn input_loop(engine: &mut Engine) {
 }
 
 fn uci() {
-    println!("id name Reggz\nid author tailow\nuciok")
+    println!("id name Reggz\nid author tailow\n");
+    println!("option name Ponder type check default false");
+    println!("uciok");
 }
 
 fn debug(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
