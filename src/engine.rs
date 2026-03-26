@@ -37,6 +37,7 @@ impl Engine {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn search(
         &mut self,
         white_time: Option<u64>,
@@ -83,20 +84,22 @@ impl Engine {
         if !infinite {
             if let Some(move_time) = move_time {
                 thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-            } else if self.board.turn() == Color::White && white_time.is_some() {
-                let remaining = white_time.unwrap();
-                let increment = white_increment.unwrap_or(0);
+            } else if self.board.turn() == Color::White {
+                if let Some(remaining) = white_time {
+                    let increment = white_increment.unwrap_or(0);
 
-                let move_time = remaining / 20 + increment / 2;
+                    let move_time = remaining / 20 + increment / 2;
 
-                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-            } else if self.board.turn() == Color::Black && black_time.is_some() {
-                let remaining = black_time.unwrap();
-                let increment = black_increment.unwrap_or(0);
+                    thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+                }
+            } else if self.board.turn() == Color::Black {
+                if let Some(remaining) = black_time {
+                    let increment = black_increment.unwrap_or(0);
 
-                let move_time = remaining / 20 + increment / 2;
+                    let move_time = remaining / 20 + increment / 2;
 
-                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+                    thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+                }
             }
         }
     }
@@ -133,20 +136,22 @@ impl Engine {
     pub fn ponder_hit(&mut self) {
         let searching_clone = Arc::clone(&self.searching);
 
-        if self.board.turn() == Color::White && self.white_time.is_some() {
-            let remaining = self.white_time.unwrap();
-            let increment = self.white_increment.unwrap_or(0);
+        if self.board.turn() == Color::White {
+            if let Some(remaining) = self.white_time {
+                let increment = self.white_increment.unwrap_or(0);
 
-            let move_time = remaining / 20 + increment / 2;
+                let move_time = remaining / 20 + increment / 2;
 
-            thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-        } else if self.board.turn() == Color::Black && self.black_time.is_some() {
-            let remaining = self.black_time.unwrap();
-            let increment = self.black_increment.unwrap_or(0);
+                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+            }
+        } else if self.board.turn() == Color::Black {
+            if let Some(remaining) = self.black_time {
+                let increment = self.black_increment.unwrap_or(0);
 
-            let move_time = remaining / 20 + increment / 2;
+                let move_time = remaining / 20 + increment / 2;
 
-            thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
+            }
         }
     }
 }
