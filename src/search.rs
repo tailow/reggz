@@ -2,6 +2,7 @@ use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate::evaluate;
 use shakmaty::zobrist::Zobrist64;
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position, Role};
+use std::f32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -399,7 +400,7 @@ impl Searcher {
 
         self.sort_legal_moves(&mut legal_moves, board, hash, transposition_table);
 
-        for legal_move in legal_moves {
+        for (i, legal_move) in legal_moves.iter().enumerate() {
             self.nodes += 1;
 
             let mut board_clone = board.clone();
@@ -408,24 +409,32 @@ impl Searcher {
 
             // TODO: Unmake move
             if let Some(new_child_hash) =
-                board_clone.update_zobrist_hash(hash, legal_move, EnPassantMode::Legal)
+                board_clone.update_zobrist_hash(hash, *legal_move, EnPassantMode::Legal)
             {
                 child_hash = new_child_hash;
 
-                board_clone.play_unchecked(legal_move);
+                board_clone.play_unchecked(*legal_move);
             } else {
-                board_clone.play_unchecked(legal_move);
+                board_clone.play_unchecked(*legal_move);
 
                 child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
             }
 
             position_history.push(child_hash);
 
-            let extension: i16 = if board_clone.is_check() { 1 } else { 0 };
+            let mut extension: i16 = 0;
+            let mut reduction: i16 = 0;
+
+            if board_clone.is_check() {
+                extension = 1;
+            } else if depth > 4 && i > 4 {
+                //reduction = (0.99 + f32::ln(depth.into()) * f32::ln((i) as f32) / f32::consts::PI)
+                //    .floor() as i16;
+            }
 
             let move_score = -self.negamax(
                 &board_clone,
-                depth - 1 + extension,
+                depth - 1 + extension - reduction,
                 ply + 1,
                 &mut -(*beta),
                 &mut -(*alpha),
@@ -440,11 +449,11 @@ impl Searcher {
             if move_score > best_score {
                 best_score = move_score;
 
-                node.best_move = Some(legal_move);
+                node.best_move = Some(*legal_move);
 
                 // Best root move
                 if ply == 0 {
-                    self.best_root_move = Some(legal_move);
+                    self.best_root_move = Some(*legal_move);
                 }
 
                 if move_score > *alpha {

@@ -153,17 +153,17 @@ pub fn evaluate(board: &Chess) -> i16 {
     score += 100 * (bitboard.pawns() & bitboard.white()).count() as i16; // White pawns
     score -= 100 * (bitboard.pawns() & bitboard.black()).count() as i16; // Black pawns
 
-    score += 320 * (bitboard.bishops() & bitboard.white()).count() as i16; // White bishops
-    score -= 320 * (bitboard.bishops() & bitboard.black()).count() as i16; // Black bishops
+    score += 350 * (bitboard.bishops() & bitboard.white()).count() as i16; // White bishops
+    score -= 350 * (bitboard.bishops() & bitboard.black()).count() as i16; // Black bishops
 
-    score += 320 * (bitboard.knights() & bitboard.white()).count() as i16; // White knights
-    score -= 320 * (bitboard.knights() & bitboard.black()).count() as i16; // Black knights
+    score += 350 * (bitboard.knights() & bitboard.white()).count() as i16; // White knights
+    score -= 350 * (bitboard.knights() & bitboard.black()).count() as i16; // Black knights
 
-    score += 500 * (bitboard.rooks() & bitboard.white()).count() as i16; // White rooks
-    score -= 500 * (bitboard.rooks() & bitboard.black()).count() as i16; // Black rooks
+    score += 525 * (bitboard.rooks() & bitboard.white()).count() as i16; // White rooks
+    score -= 525 * (bitboard.rooks() & bitboard.black()).count() as i16; // Black rooks
 
-    score += 900 * (bitboard.queens() & bitboard.white()).count() as i16; // White queen
-    score -= 900 * (bitboard.queens() & bitboard.black()).count() as i16; // Black queen
+    score += 1000 * (bitboard.queens() & bitboard.white()).count() as i16; // White queen
+    score -= 1000 * (bitboard.queens() & bitboard.black()).count() as i16; // Black queen
 
     // Both bishops alive
     if (bitboard.bishops() & bitboard.white()).count() == 2 {
