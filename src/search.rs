@@ -7,13 +7,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+// Node types for transposition table entries, indicating the accuracy of stored scores
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
-    Exact,
-    Upperbound,
-    Lowerbound,
+    Exact,      // PV-node
+    Upperbound, // All-node
+    Lowerbound, // Cut-node
 }
 
+// Transposition table node storing search results for a given position
 #[derive(Debug, Clone)]
 pub struct Node {
     pub hash: Zobrist64,
@@ -31,8 +33,8 @@ pub struct Searcher {
     pub best_root_move: Option<Move>,
 }
 
-pub const MATE: i16 = 31000;
-pub const MATE_MAX_PLIES: i16 = 128;
+pub const MATE: i16 = 31000; // Base value for checkmate (offset by ply to show mate distance)
+pub const MATE_MAX_PLIES: i16 = 128; // Maximum plies to consider for mate scoring
 
 impl Searcher {
     pub fn search(
@@ -60,11 +62,13 @@ impl Searcher {
             max_depth = custom_max_depth;
         }
 
+        // Iterative deepening
         for depth in 1..max_depth {
             if !self.searching.load(Ordering::Relaxed) {
                 break;
             }
 
+            // Aspiration window: narrow search window around expected score
             let mut lower_window = i16::MIN + 1;
             let mut upper_window = i16::MAX - 1;
 
@@ -73,6 +77,7 @@ impl Searcher {
                 upper_window = previous_score + 50;
             }
 
+            // Aspiration loop: retry with wider windows if search fails
             '_aspiration: loop {
                 let mut alpha = lower_window;
                 let mut beta = upper_window;
@@ -91,10 +96,13 @@ impl Searcher {
 
                 if let Some(score) = score {
                     if score <= lower_window {
+                        // Failed low: widen window downward
                         lower_window = score - 100;
                     } else if score >= upper_window {
+                        // Failed high: widen window upward
                         upper_window = score + 100;
                     } else {
+                        // Score within window: success
                         break;
                     }
                 } else {
@@ -134,6 +142,7 @@ impl Searcher {
         self.searching.store(false, Ordering::Relaxed);
     }
 
+    // Output search information in UCI format
     fn print_info(
         &mut self,
         score: i16,
@@ -150,6 +159,7 @@ impl Searcher {
             .collect::<Vec<String>>()
             .join(" ");
 
+        // Format score as mate in N moves or centipawns
         let score_string = if score > MATE - MATE_MAX_PLIES {
             let mate_in_plies = MATE - score;
 
@@ -167,6 +177,8 @@ impl Searcher {
         self.nodes = 0;
     }
 
+    // Quiescence search: extends search at leaf nodes to avoid horizon effect
+    // Only searches captures to find quiet positions for accurate evaluation
     fn quiesce(
         &mut self,
         board: &Chess,
@@ -213,6 +225,7 @@ impl Searcher {
 
         let mut best_score: i16 = evaluation;
 
+        // Beta cutoff: stand pat if current eval is already good enough
         if best_score >= *beta {
             return Some(best_score);
         }
@@ -280,6 +293,7 @@ impl Searcher {
         Some(best_score)
     }
 
+    // Negamax algorithm with alpha-beta pruning
     fn negamax(
         &mut self,
         board: &Chess,
@@ -327,6 +341,7 @@ impl Searcher {
             }
         }
 
+        // Leaf node
         if depth <= 0 {
             return self.quiesce(
                 board,
@@ -342,7 +357,7 @@ impl Searcher {
 
         let transposition_table_index: usize = hash.0 as usize % TRANSPOSITION_TABLE_LENGTH;
 
-        // Transposition table hit
+        // Transposition table hit: reuse previously computed results
         if let Some(ref tt_node) = transposition_table[transposition_table_index] {
             if tt_node.hash == hash && tt_node.depth >= depth {
                 let node = tt_node.clone();
@@ -433,7 +448,7 @@ impl Searcher {
             if board_clone.is_check() {
                 extension = 1;
             }
-            // Late move reduction
+            // Late move reduction: reduce depth for later moves (LMP)
             else if depth > 2 && i > 2 {
                 reduction = (0.99 + f32::ln(depth.into()) * f32::ln((i) as f32) / f32::consts::PI)
                     .floor() as i16;
@@ -478,6 +493,7 @@ impl Searcher {
                     self.best_root_move = Some(*legal_move);
                 }
 
+                // Found the best guaranteed move
                 if move_score > *alpha {
                     *alpha = move_score;
 
@@ -485,6 +501,8 @@ impl Searcher {
                 }
             }
 
+            // Beta cutoff / fail high: found a move that is too good, causing the opponent to avoid
+            // this node
             if move_score >= *beta {
                 node.node_type = NodeType::Lowerbound;
 
@@ -512,6 +530,7 @@ impl Searcher {
         Some(best_score)
     }
 
+    // Move ordering
     fn sort_legal_moves(
         &self,
         legal_moves: &mut MoveList,
@@ -523,7 +542,7 @@ impl Searcher {
             return;
         }
 
-        // Move best move to the front
+        // Move best move from transposition table to the front
         if let Some(ref pv_node) = transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
         {
             if let Some(best_move) = pv_node.best_move {
@@ -535,13 +554,14 @@ impl Searcher {
             }
         }
 
-        // Score each move for sorting
+        // Score each move for sorting using MVV-LVA heuristic
         legal_moves[1..].sort_by_cached_key(|m| {
             if m.is_promotion() {
                 return 0i16; // Promotions first
             }
             if m.is_capture() {
-                // MVV-LVA: victim value - attacker value
+                // MVV-LVA: Most Valuable Victim - Least Valuable Attacker
+                // Prioritize capturing high-value pieces with low-value pieces
                 let victim = match m.capture().unwrap() {
                     Role::Pawn => 100,
                     Role::Knight => 300,
@@ -564,7 +584,7 @@ impl Searcher {
         });
     }
 
-    // Should probably switch to a different method
+    // Reconstruct the principal variation (best line) from transposition table
     fn get_principal_variation(
         &self,
         board: &mut Chess,
