@@ -362,22 +362,26 @@ impl Searcher {
 
         // Nullmove pruning
         /*
-        if !board.is_check()
-            && (board.board().black() | board.board().white()
-                != board.board().pawns() | board.board().kings())
-        {
-            let reduction: i16 = 2;
+        let only_pawns = (board.turn().is_black()
+            && (board.board().black() & (board.board().pawns() | board.board().kings())
+                == board.board().black()))
+            || (board.turn().is_white()
+                && (board.board().white() & (board.board().pawns() | board.board().kings())
+                    == board.board().white()));
+
+        if !board.is_check() && !only_pawns && depth >= 3 {
+            let reduction: i16 = depth / 3 + 2;
 
             let board_clone = board.clone().swap_turn().unwrap();
 
             let child_hash = board_clone.zobrist_hash(EnPassantMode::Legal);
 
             let move_score = -self.negamax(
-                board,
+                &board_clone,
                 depth - reduction,
                 ply + 1,
                 &mut -(*beta),
-                &mut -(*beta - 1),
+                &mut -(*beta + 1),
                 -color,
                 position_history,
                 child_hash,
