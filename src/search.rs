@@ -425,14 +425,17 @@ impl Searcher {
             let mut extension: i16 = 0;
             let mut reduction: i16 = 0;
 
+            // Check extension
             if board_clone.is_check() {
                 extension = 1;
-            } else if depth > 4 && i > 4 {
-                //reduction = (0.99 + f32::ln(depth.into()) * f32::ln((i) as f32) / f32::consts::PI)
-                //    .floor() as i16;
+            }
+            // Late move reduction
+            else if depth > 2 && i > 2 {
+                reduction = (0.99 + f32::ln(depth.into()) * f32::ln((i) as f32) / f32::consts::PI)
+                    .floor() as i16;
             }
 
-            let move_score = -self.negamax(
+            let mut move_score = -self.negamax(
                 &board_clone,
                 depth - 1 + extension - reduction,
                 ply + 1,
@@ -443,6 +446,21 @@ impl Searcher {
                 child_hash,
                 transposition_table,
             )?;
+
+            // Don't reduce depth if reduced search fails high
+            if reduction > 0 && move_score > *alpha {
+                move_score = -self.negamax(
+                    &board_clone,
+                    depth - 1 + extension,
+                    ply + 1,
+                    &mut -(*beta),
+                    &mut -(*alpha),
+                    -color,
+                    position_history,
+                    child_hash,
+                    transposition_table,
+                )?;
+            }
 
             position_history.pop();
 
