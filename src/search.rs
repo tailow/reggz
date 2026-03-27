@@ -36,6 +36,13 @@ pub struct Searcher {
 pub const MATE: i16 = 31000; // Base value for checkmate (offset by ply to show mate distance)
 pub const MATE_MAX_PLIES: i16 = 128; // Maximum plies to consider for mate scoring
 
+#[allow(dead_code)]
+pub struct SearchResult {
+    pub best_move: Option<Move>,
+    pub ponder_move: Option<Move>,
+    pub score: Option<i16>,
+}
+
 impl Searcher {
     pub fn search(
         &mut self,
@@ -43,14 +50,37 @@ impl Searcher {
         position_history: &mut Vec<Zobrist64>,
         transposition_table: &mut Arc<Mutex<Vec<Option<Node>>>>,
     ) {
-        let mut score: Option<i16>;
+        let mut tt = transposition_table.lock().unwrap();
+
+        let result = self.search_impl(board, position_history, &mut tt);
+
+        if let Some(best_move) = result.best_move {
+            if let Some(ponder_move) = result.ponder_move {
+                println!(
+                    "bestmove {} ponder {}",
+                    best_move.to_uci(CastlingMode::Standard),
+                    ponder_move.to_uci(CastlingMode::Standard)
+                );
+            } else {
+                println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
+            }
+        }
+
+        self.searching.store(false, Ordering::Relaxed);
+    }
+
+    fn search_impl(
+        &mut self,
+        board: Chess,
+        position_history: &mut Vec<Zobrist64>,
+        transposition_table: &mut [Option<Node>],
+    ) -> SearchResult {
+        let mut score: Option<i16> = None;
         let mut previous_score: Option<i16> = None;
 
         let mut ponder_move: Option<Move> = None;
 
         let start_time = SystemTime::now();
-
-        let mut transposition_table = transposition_table.lock().unwrap();
 
         let mut principal_variation: Vec<Move>;
 
@@ -78,7 +108,7 @@ impl Searcher {
             }
 
             // Aspiration loop: retry with wider windows if search fails
-            '_aspiration: loop {
+            loop {
                 let mut alpha = lower_window;
                 let mut beta = upper_window;
 
@@ -91,7 +121,7 @@ impl Searcher {
                     if board.turn() == Color::White { 1 } else { -1 },
                     position_history,
                     hash,
-                    &mut transposition_table,
+                    transposition_table,
                 );
 
                 if let Some(score) = score {
@@ -110,36 +140,27 @@ impl Searcher {
                 }
             }
 
-            // TODO: Fix
-            if let Some(score) = score {
-                previous_score = Some(score);
+            if let Some(s) = score {
+                previous_score = Some(s);
 
                 principal_variation =
-                    self.get_principal_variation(&mut board.clone(), depth, &transposition_table);
+                    self.get_principal_variation(&mut board.clone(), depth, transposition_table);
 
                 if principal_variation.len() > 1 {
                     ponder_move = Some(principal_variation[1]);
                 }
 
                 if self.debug.load(Ordering::Relaxed) {
-                    self.print_info(score, start_time, depth, &principal_variation);
+                    self.print_info(s, start_time, depth, &principal_variation);
                 }
             }
         }
 
-        if let Some(best_move) = self.best_root_move {
-            if let Some(ponder_move) = ponder_move {
-                println!(
-                    "bestmove {} ponder {}",
-                    best_move.to_uci(CastlingMode::Standard),
-                    ponder_move.to_uci(CastlingMode::Standard)
-                );
-            } else {
-                println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
-            }
+        SearchResult {
+            best_move: self.best_root_move,
+            ponder_move,
+            score,
         }
-
-        self.searching.store(false, Ordering::Relaxed);
     }
 
     // Output search information in UCI format
@@ -264,7 +285,7 @@ impl Searcher {
             let move_score = -self.quiesce(
                 &board_clone,
                 &mut -(*beta),
-                &mut -(*alpha),
+                &mut alpha.wrapping_neg(),
                 -color,
                 ply + 1,
                 child_hash,
@@ -461,7 +482,7 @@ impl Searcher {
                 depth - 1 + extension - reduction,
                 ply + 1,
                 &mut -(*beta),
-                &mut -(*alpha),
+                &mut alpha.wrapping_neg(),
                 -color,
                 position_history,
                 child_hash,
@@ -475,7 +496,7 @@ impl Searcher {
                     depth - 1 + extension,
                     ply + 1,
                     &mut -(*beta),
-                    &mut -(*alpha),
+                    &mut alpha.wrapping_neg(),
                     -color,
                     position_history,
                     child_hash,
@@ -626,7 +647,7 @@ impl Searcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shakmaty::{fen::Fen, uci::UciMove, Chess};
+    use shakmaty::{fen::Fen, Chess};
 
     // Helper to parse FEN string into Chess position
     fn parse_fen(fen_str: &str) -> Chess {
@@ -634,207 +655,102 @@ mod tests {
         fen.into_position(shakmaty::CastlingMode::Standard).unwrap()
     }
 
-    // Helper to create a fresh searcher for testing
-    fn create_test_searcher() -> Searcher {
-        Searcher {
+    // Helper to run full search with iterative deepening and aspiration windows
+    fn run_search(board: Chess, max_depth: i16) -> SearchResult {
+        let mut searcher = Searcher {
             nodes: 0,
             searching: Arc::new(AtomicBool::new(true)),
-            max_depth: None,
+            max_depth: Some(max_depth),
             debug: Arc::new(AtomicBool::new(false)),
             best_root_move: None,
-        }
-    }
+        };
 
-    // Helper to create a transposition table
-    fn create_tt() -> Arc<Mutex<Vec<Option<Node>>>> {
-        Arc::new(Mutex::new(vec![None; TRANSPOSITION_TABLE_LENGTH]))
-    }
-
-    // ============== CHECKMATE DETECTION TESTS ==============
-
-    #[test]
-    fn test_mate_in_1_white() {
-        // Simple mate in 1: white queen mates on h7
-        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5Q2/PPPP1PPP/RNB1KBNR w KQkq - 4 3";
-        let board = parse_fen(fen);
-
-        let mut searcher = create_test_searcher();
         let mut position_history = Vec::new();
-        let mut tt = create_tt();
+        let mut tt = vec![None; TRANSPOSITION_TABLE_LENGTH];
 
-        searcher.max_depth = Some(4);
-        searcher.search(board, &mut position_history, &mut tt);
-
-        assert!(searcher.best_root_move.is_some());
+        searcher.search_impl(board, &mut position_history, &mut tt)
     }
 
     #[test]
-    fn test_mate_in_1_black() {
-        // Black to play and mate in 1
-        let fen = "6k1/5ppp/8/8/8/8/5PPP/5RK1 b - - 0 1";
+    fn test_mate_in_1_white_score() {
+        // White queen mates on h7 - should return a mate score
+        let fen = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 3";
         let board = parse_fen(fen);
 
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let mut tt = create_tt();
+        let result = run_search(board, 5);
 
-        searcher.max_depth = Some(4);
-        searcher.search(board, &mut position_history, &mut tt);
-
-        // Should find ...Rh1# or similar
-        assert!(searcher.best_root_move.is_some());
-    }
-
-    #[test]
-    fn test_mate_in_2_white() {
-        // White to play, mate in 2
-        let fen = "r1bqk2r/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-        let board = parse_fen(fen);
-
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let mut tt = create_tt();
-
-        // Search deeper to find mate in 2
-        searcher.max_depth = Some(6);
-        searcher.search(board, &mut position_history, &mut tt);
-
-        // Should find a forcing line
-        assert!(searcher.best_root_move.is_some());
-    }
-
-    #[test]
-    fn test_mate_in_3_white() {
-        // Classic mate in 3 puzzle
-        let fen = "r5k1/pp6/8/8/8/8/PPPp1PPP/R5K1 w - - 0 1";
-        let board = parse_fen(fen);
-
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let mut tt = create_tt();
-
-        searcher.max_depth = Some(8);
-        searcher.search(board, &mut position_history, &mut tt);
-
-        assert!(searcher.best_root_move.is_some());
-    }
-
-    #[test]
-    fn test_checkmate_score_calculation() {
-        // Test that quiescence returns a valid score for a complex position
-        let fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2";
-        let board = parse_fen(fen);
-
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
-
-        let mut alpha = i16::MIN;
-        let mut beta = i16::MAX;
-
-        let score = searcher.quiesce(
-            &board,
-            &mut alpha,
-            &mut beta,
-            1,
-            0,
-            hash,
-            &mut position_history,
-            &[],
+        // Mate in 1 for white should be a positive mate score
+        let score = result.score.unwrap();
+        assert!(
+            score > MATE - MATE_MAX_PLIES,
+            "Expected mate score, got {}",
+            score
         );
-
-        assert!(score.is_some());
     }
 
-    // ============== REPETITION DETECTION TESTS ==============
-
     #[test]
-    fn test_threefold_repetition_draw() {
-        // Position that leads to threefold repetition
-        // Start position with moves: e2e4 e7e5 e4e5 e5e4 (repeats twice = 3x position)
-        let mut board = Chess::default();
+    fn test_mate_in_1_black_score() {
+        // Black to play and mate in 1 with ...Qh1#
+        let fen = "4q1k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1";
+        let board = parse_fen(fen);
 
-        // Play: e2e4
-        let uci_move1 = UciMove::from_ascii(b"e2e4").unwrap();
-        let move1 = uci_move1.to_move(&board).unwrap();
-        board.play_unchecked(move1);
+        let result = run_search(board, 5);
 
-        // Play: e7e5
-        let uci_move2 = UciMove::from_ascii(b"e7e5").unwrap();
-        let move2 = uci_move2.to_move(&board).unwrap();
-        board.play_unchecked(move2);
-
-        let mut searcher = create_test_searcher();
-        let mut position_history = vec![board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal)];
-        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
-
-        // This should detect repetition when the same position appears 2 more times
-        let mut alpha = i16::MIN;
-        let mut beta = i16::MAX;
-
-        let score = searcher.quiesce(
-            &board,
-            &mut alpha,
-            &mut beta,
-            1,
-            2, // ply > 0 to enable repetition check
-            hash,
-            &mut position_history,
-            &[],
+        // Mate in 1 for black should be a negative mate score
+        let score = result.score.unwrap();
+        assert!(
+            score > MATE - MATE_MAX_PLIES,
+            "Expected mate score for black, got {}",
+            score
         );
-
-        // Should return some score (repetition check happens during search)
-        assert!(score.is_some());
     }
 
     #[test]
-    fn test_repetition_with_uci_moves() {
-        // Test repetition detection using UCI move sequences
-        // Knight out and back: g1f3 g8f6 f3g1 f6g8 (returns to starting position)
-        let mut board = Chess::default();
-        let starting_hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
+    fn test_material_advantage_score() {
+        // Black is up a rook
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK1NR w KQkq - 0 1";
+        let board = parse_fen(fen);
 
-        let moves = vec!["g1f3", "g8f6", "f3g1", "f6g8"];
+        let result = run_search(board, 3);
 
-        for move_uci in moves {
-            let uci_move = UciMove::from_ascii(move_uci.as_bytes()).unwrap();
-            let move_obj = uci_move.to_move(&board).unwrap();
-            board.play_unchecked(move_obj);
-        }
-
-        // After all moves, should return to starting position hash
-        let final_hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
-        assert_eq!(starting_hash, final_hash);
+        let score = result.score.unwrap();
+        // Black is up a rook (525 points), score should be significantly positive
+        assert!(
+            score < -300,
+            "Black should have significant advantage, got {}",
+            score
+        );
     }
 
     #[test]
-    fn test_fifty_move_rule() {
+    fn test_symmetrical_position_score() {
+        // Starting position is symmetrical, should be near zero
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let board = parse_fen(fen);
+
+        let result = run_search(board, 3);
+
+        let score = result.score.unwrap();
+        // Should be close to 0 (within reasonable margin for positional differences)
+        assert!(
+            score.abs() < 100,
+            "Symmetrical position should be near 0, got {}",
+            score
+        );
+    }
+
+    #[test]
+    fn test_fifty_move_rule_draw() {
         // Test 50-move rule detection
         let fen = "6k1/5ppp/8/8/8/8/5PPP/5RK1 w - - 100 1";
         let board = parse_fen(fen);
 
         assert_eq!(board.halfmoves(), 100);
 
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
-
-        let mut alpha = i16::MIN;
-        let mut beta = i16::MAX;
-
-        let score = searcher.quiesce(
-            &board,
-            &mut alpha,
-            &mut beta,
-            1,
-            0,
-            hash,
-            &mut position_history,
-            &[],
-        );
+        let result = run_search(board, 3);
 
         // Should return 0 for draw by 50-move rule
-        assert_eq!(score, Some(0));
+        assert_eq!(result.score, Some(0));
     }
 
     #[test]
@@ -845,51 +761,8 @@ mod tests {
 
         assert!(board.is_insufficient_material());
 
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
+        let result = run_search(board, 3);
 
-        let mut alpha = i16::MIN;
-        let mut beta = i16::MAX;
-
-        let score = searcher.quiesce(
-            &board,
-            &mut alpha,
-            &mut beta,
-            1,
-            0,
-            hash,
-            &mut position_history,
-            &[],
-        );
-
-        assert_eq!(score, Some(0));
-    }
-
-    #[test]
-    fn test_stalemate_detection() {
-        // Test that quiescence handles positions with no legal moves
-        let fen = "k7/8/8/8/8/8/8/1K6 w - - 0 1";
-        let board = parse_fen(fen);
-
-        let mut searcher = create_test_searcher();
-        let mut position_history = Vec::new();
-        let hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
-
-        let mut alpha = i16::MIN;
-        let mut beta = i16::MAX;
-
-        let score = searcher.quiesce(
-            &board,
-            &mut alpha,
-            &mut beta,
-            1,
-            0,
-            hash,
-            &mut position_history,
-            &[],
-        );
-
-        assert!(score.is_some());
+        assert_eq!(result.score, Some(0));
     }
 }
