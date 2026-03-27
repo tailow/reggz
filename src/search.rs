@@ -2,6 +2,7 @@ use crate::engine::TRANSPOSITION_TABLE_LENGTH;
 use crate::evaluate::evaluate;
 use shakmaty::zobrist::Zobrist64;
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, MoveList, Position, Role};
+use std::collections::HashSet;
 use std::f32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -615,11 +616,16 @@ impl Searcher {
         transposition_table: &[Option<Node>],
     ) -> Vec<Move> {
         let mut pv: Vec<Move> = Vec::new();
+        let mut seen_hashes: HashSet<Zobrist64> = HashSet::new();
 
         let mut hash: Zobrist64;
 
         for _ in 0..depth {
             hash = board.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
+
+            if !seen_hashes.insert(hash) {
+                break;
+            }
 
             if let Some(ref pv_node) =
                 transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
