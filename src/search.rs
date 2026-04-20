@@ -287,7 +287,7 @@ impl Searcher {
 
         let mut capture_moves = board.capture_moves();
 
-        self.sort_legal_moves(&mut capture_moves, board, hash, transposition_table);
+        self.sort_legal_moves(&mut capture_moves, hash, transposition_table);
 
         for capture_move in capture_moves {
             self.nodes += 1;
@@ -489,7 +489,7 @@ impl Searcher {
             score: best_score,
         };
 
-        self.sort_legal_moves(&mut legal_moves, board, hash, transposition_table);
+        self.sort_legal_moves(&mut legal_moves, hash, transposition_table);
 
         for (i, legal_move) in legal_moves.iter().enumerate() {
             self.nodes += 1;
@@ -605,7 +605,6 @@ impl Searcher {
     fn sort_legal_moves(
         &self,
         legal_moves: &mut MoveList,
-        board: &Chess,
         hash: Zobrist64,
         transposition_table: &[Option<Node>],
     ) {
@@ -617,7 +616,7 @@ impl Searcher {
         if let Some(ref pv_node) = transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
         {
             if let Some(best_move) = pv_node.best_move {
-                if board.is_legal(best_move) {
+                if pv_node.hash == hash {
                     if let Some(pos) = legal_moves.iter().position(|m| *m == best_move) {
                         legal_moves.swap(0, pos);
                     }
