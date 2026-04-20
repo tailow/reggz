@@ -211,7 +211,7 @@ impl Searcher {
         ply: i16,
         hash: Zobrist64,
         position_history: &mut Vec<Zobrist64>,
-        transposition_table: &[Option<Node>],
+        transposition_table: &mut [Option<Node>],
     ) -> Option<i16> {
         if board.is_insufficient_material() {
             return Some(0);
@@ -244,6 +244,26 @@ impl Searcher {
             }
         }
 
+        let transposition_table_index: usize = hash.0 as usize % TRANSPOSITION_TABLE_LENGTH;
+
+        // Transposition table hit: reuse previously computed results
+        if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+            if tt_node.hash == hash {
+                let node = tt_node.clone();
+
+                if node.node_type == NodeType::Exact {
+                    return Some(node.score);
+                } else if node.node_type == NodeType::Lowerbound {
+                    *alpha = i16::max(*alpha, node.score);
+                } else if node.node_type == NodeType::Upperbound {
+                    *beta = i16::min(*beta, node.score);
+                }
+                if alpha >= beta {
+                    return Some(node.score);
+                }
+            }
+        }
+
         let evaluation = color * evaluate(board);
 
         let mut best_score: i16 = evaluation;
@@ -257,6 +277,14 @@ impl Searcher {
             *alpha = best_score;
         }
 
+        let mut node: Node = Node {
+            best_move: None,
+            depth: 0,
+            hash,
+            node_type: NodeType::Upperbound,
+            score: best_score,
+        };
+
         let mut capture_moves = board.capture_moves();
 
         self.sort_legal_moves(&mut capture_moves, board, hash, transposition_table);
@@ -268,7 +296,6 @@ impl Searcher {
 
             let child_hash;
 
-            // TODO: Unmake move
             if let Some(new_child_hash) =
                 board_clone.update_zobrist_hash(hash, capture_move, EnPassantMode::Legal)
             {
@@ -299,17 +326,36 @@ impl Searcher {
             if move_score > best_score {
                 best_score = move_score;
 
+                node.best_move = Some(capture_move);
+
                 if move_score > *alpha {
                     *alpha = move_score;
+
+                    node.node_type = NodeType::Exact;
                 }
             }
 
             if move_score >= *beta {
+                node.node_type = NodeType::Lowerbound;
+
                 break;
             }
 
             if !self.searching.load(Ordering::Relaxed) {
                 return None;
+            }
+        }
+
+        node.score = best_score;
+
+        // Store node in the transposition table
+        if self.searching.load(Ordering::Relaxed) {
+            if let Some(ref tt_node) = transposition_table[transposition_table_index] {
+                if tt_node.depth == 0 {
+                    transposition_table[transposition_table_index] = Some(node.clone());
+                }
+            } else {
+                transposition_table[transposition_table_index] = Some(node.clone());
             }
         }
 
@@ -452,7 +498,6 @@ impl Searcher {
 
             let child_hash;
 
-            // TODO: Unmake move
             if let Some(new_child_hash) =
                 board_clone.update_zobrist_hash(hash, *legal_move, EnPassantMode::Legal)
             {
