@@ -1,5 +1,5 @@
 use crate::engine::Engine;
-use shakmaty::{fen::Fen, uci::UciMove, EnPassantMode, Move, Position};
+use shakmaty::{fen::Fen, uci::UciMove, Chess, EnPassantMode, Move, Position};
 use std::{io, str::SplitWhitespace};
 
 pub fn input_loop(engine: &mut Engine) {
@@ -52,15 +52,13 @@ fn isready() {
 }
 
 fn ucinewgame(engine: &mut Engine) {
-    engine.reset();
+    engine.new_game();
 }
 
 fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
     match tokens.next() {
-        Some("startpos") => engine.reset(),
+        Some("startpos") => engine.set_position(Chess::new()),
         Some("fen") => {
-            engine.reset();
-
             let fen_parts: Vec<&str> = tokens.by_ref().take(6).collect();
 
             let fen_string = fen_parts.join(" ");
@@ -70,10 +68,10 @@ fn position(tokens: &mut SplitWhitespace<'_>, engine: &mut Engine) {
                 Err(_) => return,
             };
 
-            engine.board = match fen.into_position(shakmaty::CastlingMode::Standard) {
-                Ok(board) => board,
+            match fen.into_position(shakmaty::CastlingMode::Standard) {
+                Ok(board) => engine.set_position(board),
                 Err(_) => return,
-            };
+            }
         }
         _ => return,
     }

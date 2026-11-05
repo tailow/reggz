@@ -7,6 +7,7 @@ use std::sync::{
 use std::thread;
 
 const MAX_TRANSPOSITION_TABLE_SIZE_MB: usize = 256;
+const MOVE_OVERHEAD_MS: u64 = 50;
 pub const TRANSPOSITION_TABLE_LENGTH: usize =
     MAX_TRANSPOSITION_TABLE_SIZE_MB * 1_000_000 / size_of::<Option<search::Node>>();
 
@@ -82,41 +83,38 @@ impl Engine {
 
         // Start timer if not infinite
         if !infinite {
+            let move_time = move_time.or_else(|| self.allocate_time());
+
             if let Some(move_time) = move_time {
                 thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-            } else if self.board.turn() == Color::White {
-                if let Some(remaining) = white_time {
-                    let increment = white_increment.unwrap_or(0);
-
-                    let move_time = remaining / 20 + increment / 2;
-
-                    thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-                }
-            } else if self.board.turn() == Color::Black {
-                if let Some(remaining) = black_time {
-                    let increment = black_increment.unwrap_or(0);
-
-                    let move_time = remaining / 20 + increment / 2;
-
-                    thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-                }
             }
         }
+    }
+
+    // Time to spend on this move from the remaining clock time and increment, never more than
+    // the remaining time minus a safety margin for communication overhead
+    fn allocate_time(&self) -> Option<u64> {
+        let (remaining, increment) = if self.board.turn() == Color::White {
+            (self.white_time?, self.white_increment.unwrap_or(0))
+        } else {
+            (self.black_time?, self.black_increment.unwrap_or(0))
+        };
+
+        let budget = remaining / 20 + increment / 2;
+        let limit = remaining.saturating_sub(MOVE_OVERHEAD_MS);
+
+        Some(budget.min(limit))
     }
 
     pub fn debug(&mut self, enable: &bool) {
         self.debug.store(*enable, Ordering::Relaxed);
     }
 
-    pub fn reset(&mut self) {
+    // Start a new game: reset the position and clear the transposition table
+    pub fn new_game(&mut self) {
         self.searching.store(false, Ordering::Relaxed);
 
-        self.board = Chess::new();
-
-        self.position_history.clear();
-
-        self.position_history
-            .push(self.board.zobrist_hash(shakmaty::EnPassantMode::Legal));
+        self.set_position(Chess::new());
 
         for node in self.transposition_table.lock().unwrap().iter_mut() {
             *node = None;
@@ -128,6 +126,16 @@ impl Engine {
         self.black_increment = None;
     }
 
+    // Set the root position and start the position history from it
+    pub fn set_position(&mut self, board: Chess) {
+        self.board = board;
+
+        self.position_history.clear();
+
+        self.position_history
+            .push(self.board.zobrist_hash(shakmaty::EnPassantMode::Legal));
+    }
+
     pub fn stop(&mut self) {
         self.searching.store(false, Ordering::Relaxed);
     }
@@ -136,22 +144,8 @@ impl Engine {
     pub fn ponder_hit(&mut self) {
         let searching_clone = Arc::clone(&self.searching);
 
-        if self.board.turn() == Color::White {
-            if let Some(remaining) = self.white_time {
-                let increment = self.white_increment.unwrap_or(0);
-
-                let move_time = remaining / 20 + increment / 2;
-
-                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-            }
-        } else if self.board.turn() == Color::Black {
-            if let Some(remaining) = self.black_time {
-                let increment = self.black_increment.unwrap_or(0);
-
-                let move_time = remaining / 20 + increment / 2;
-
-                thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
-            }
+        if let Some(move_time) = self.allocate_time() {
+            thread::spawn(move || timer::search_for_ms(move_time, searching_clone));
         }
     }
 }

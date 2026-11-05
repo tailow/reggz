@@ -37,6 +37,28 @@ pub struct Searcher {
 pub const MATE: i16 = 31000; // Base value for checkmate (offset by ply to show mate distance)
 pub const MATE_MAX_PLIES: i16 = 128; // Maximum plies to consider for mate scoring
 
+// Mate scores are stored in the transposition table relative to the node instead of the root,
+// so they stay correct when the position is reached at a different ply
+fn score_to_tt(score: i16, ply: i16) -> i16 {
+    if score > MATE - MATE_MAX_PLIES {
+        score + ply
+    } else if score < -MATE + MATE_MAX_PLIES {
+        score - ply
+    } else {
+        score
+    }
+}
+
+fn score_from_tt(score: i16, ply: i16) -> i16 {
+    if score > MATE - MATE_MAX_PLIES {
+        score - ply
+    } else if score < -MATE + MATE_MAX_PLIES {
+        score + ply
+    } else {
+        score
+    }
+}
+
 #[allow(dead_code)]
 pub struct SearchResult {
     pub best_move: Option<Move>,
@@ -53,9 +75,15 @@ impl Searcher {
     ) {
         let mut tt = transposition_table.lock().unwrap();
 
-        let result = self.search_impl(board, position_history, &mut tt);
+        let result = self.search_impl(board.clone(), position_history, &mut tt);
 
-        if let Some(best_move) = result.best_move {
+        // Fall back to any legal move if the search was stopped before a root move was searched,
+        // and to the null move if there are no legal moves, so the GUI always gets a bestmove
+        let best_move = result
+            .best_move
+            .or_else(|| board.legal_moves().first().copied());
+
+        if let Some(best_move) = best_move {
             if let Some(ponder_move) = result.ponder_move {
                 println!(
                     "bestmove {} ponder {}",
@@ -65,6 +93,8 @@ impl Searcher {
             } else {
                 println!("bestmove {}", best_move.to_uci(CastlingMode::Standard));
             }
+        } else {
+            println!("bestmove 0000");
         }
 
         self.searching.store(false, Ordering::Relaxed);
@@ -94,7 +124,7 @@ impl Searcher {
         }
 
         // Iterative deepening
-        for depth in 1..max_depth {
+        for depth in 1..=max_depth {
             if !self.searching.load(Ordering::Relaxed) {
                 break;
             }
@@ -249,17 +279,17 @@ impl Searcher {
         // Transposition table hit: reuse previously computed results
         if let Some(ref tt_node) = transposition_table[transposition_table_index] {
             if tt_node.hash == hash {
-                let node = tt_node.clone();
+                let tt_score = score_from_tt(tt_node.score, ply);
 
-                if node.node_type == NodeType::Exact {
-                    return Some(node.score);
-                } else if node.node_type == NodeType::Lowerbound {
-                    *alpha = i16::max(*alpha, node.score);
-                } else if node.node_type == NodeType::Upperbound {
-                    *beta = i16::min(*beta, node.score);
+                if tt_node.node_type == NodeType::Exact {
+                    return Some(tt_score);
+                } else if tt_node.node_type == NodeType::Lowerbound {
+                    *alpha = i16::max(*alpha, tt_score);
+                } else if tt_node.node_type == NodeType::Upperbound {
+                    *beta = i16::min(*beta, tt_score);
                 }
                 if alpha >= beta {
-                    return Some(node.score);
+                    return Some(tt_score);
                 }
             }
         }
@@ -346,7 +376,7 @@ impl Searcher {
             }
         }
 
-        node.score = best_score;
+        node.score = score_to_tt(best_score, ply);
 
         // Store node in the transposition table
         if self.searching.load(Ordering::Relaxed) {
@@ -427,20 +457,21 @@ impl Searcher {
 
         let transposition_table_index: usize = hash.0 as usize % TRANSPOSITION_TABLE_LENGTH;
 
-        // Transposition table hit: reuse previously computed results
+        // Transposition table hit: reuse previously computed results. Skipped at the root, which
+        // must always search its moves so that a best root move is set
         if let Some(ref tt_node) = transposition_table[transposition_table_index] {
-            if tt_node.hash == hash && tt_node.depth >= depth {
-                let node = tt_node.clone();
+            if ply > 0 && tt_node.hash == hash && tt_node.depth >= depth {
+                let tt_score = score_from_tt(tt_node.score, ply);
 
-                if node.node_type == NodeType::Exact {
-                    return Some(node.score);
-                } else if node.node_type == NodeType::Lowerbound {
-                    *alpha = i16::max(*alpha, node.score);
-                } else if node.node_type == NodeType::Upperbound {
-                    *beta = i16::min(*beta, node.score);
+                if tt_node.node_type == NodeType::Exact {
+                    return Some(tt_score);
+                } else if tt_node.node_type == NodeType::Lowerbound {
+                    *alpha = i16::max(*alpha, tt_score);
+                } else if tt_node.node_type == NodeType::Upperbound {
+                    *beta = i16::min(*beta, tt_score);
                 }
                 if alpha >= beta {
-                    return Some(node.score);
+                    return Some(tt_score);
                 }
             }
         }
@@ -525,20 +556,9 @@ impl Searcher {
                     .floor() as i16;
             }
 
-            let mut move_score = -self.negamax(
-                &board_clone,
-                depth - 1 + extension - reduction,
-                ply + 1,
-                &mut -(*beta),
-                &mut -(*alpha),
-                -color,
-                position_history,
-                child_hash,
-                transposition_table,
-            )?;
+            let mut move_score;
 
-            // Don't reduce depth if reduced search fails high
-            if reduction > 0 && move_score > *alpha {
+            if i == 0 {
                 move_score = -self.negamax(
                     &board_clone,
                     depth - 1 + extension,
@@ -550,6 +570,49 @@ impl Searcher {
                     child_hash,
                     transposition_table,
                 )?;
+            } else {
+                // Null window search
+                move_score = -self.negamax(
+                    &board_clone,
+                    depth - 1 + extension - reduction,
+                    ply + 1,
+                    &mut -(*alpha + 1),
+                    &mut -(*alpha),
+                    -color,
+                    position_history,
+                    child_hash,
+                    transposition_table,
+                )?;
+
+                // Re-search at full depth if the reduced search beats alpha
+                if reduction > 0 && move_score > *alpha {
+                    move_score = -self.negamax(
+                        &board_clone,
+                        depth - 1 + extension,
+                        ply + 1,
+                        &mut -(*alpha + 1),
+                        &mut -(*alpha),
+                        -color,
+                        position_history,
+                        child_hash,
+                        transposition_table,
+                    )?;
+                }
+
+                // Re-search with a full window if the move lands inside the window
+                if move_score > *alpha && move_score < *beta {
+                    move_score = -self.negamax(
+                        &board_clone,
+                        depth - 1 + extension,
+                        ply + 1,
+                        &mut -(*beta),
+                        &mut -(*alpha),
+                        -color,
+                        position_history,
+                        child_hash,
+                        transposition_table,
+                    )?;
+                }
             }
 
             position_history.pop();
@@ -559,14 +622,15 @@ impl Searcher {
 
                 node.best_move = Some(*legal_move);
 
-                // Best root move
-                if ply == 0 {
-                    self.best_root_move = Some(*legal_move);
-                }
-
                 // Found the best guaranteed move
                 if move_score > *alpha {
                     *alpha = move_score;
+
+                    // Best root move: only trust scores that beat alpha, since fail-low scores
+                    // are upper bounds and don't rank moves
+                    if ply == 0 {
+                        self.best_root_move = Some(*legal_move);
+                    }
 
                     node.node_type = NodeType::Exact;
                 }
@@ -585,7 +649,7 @@ impl Searcher {
             }
         }
 
-        node.score = best_score;
+        node.score = score_to_tt(best_score, ply);
 
         // Store node in the transposition table
         if self.searching.load(Ordering::Relaxed) {
@@ -612,22 +676,24 @@ impl Searcher {
             return;
         }
 
-        // Move best move from transposition table to the front
+        // Best move from the transposition table
+        let mut tt_move: Option<Move> = None;
+
         if let Some(ref pv_node) = transposition_table[hash.0 as usize % TRANSPOSITION_TABLE_LENGTH]
         {
-            if let Some(best_move) = pv_node.best_move {
-                if pv_node.hash == hash {
-                    if let Some(pos) = legal_moves.iter().position(|m| *m == best_move) {
-                        legal_moves.swap(0, pos);
-                    }
-                }
+            if pv_node.hash == hash {
+                tt_move = pv_node.best_move;
             }
         }
 
-        // Score each move for sorting using MVV-LVA heuristic
-        legal_moves[1..].sort_by_cached_key(|m| {
+        // Order: transposition table move, then captures by MVV-LVA, then promotions, then quiet
+        // moves
+        legal_moves.sort_by_cached_key(|m| {
+            if Some(*m) == tt_move {
+                return i16::MIN; // Transposition table move first
+            }
             if m.is_promotion() {
-                return 0i16; // Promotions first
+                return 0i16; // Promotions after captures, before quiet moves
             }
             if m.is_capture() {
                 // MVV-LVA: Most Valuable Victim - Least Valuable Attacker
@@ -725,7 +791,7 @@ mod tests {
 
     #[test]
     fn test_mate_in_1_white_score() {
-        // White queen mates on h7 - should return a mate score
+        // White queen mates on f7 - should return a mate score
         let fen = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 3";
         let board = parse_fen(fen);
 
@@ -748,7 +814,7 @@ mod tests {
 
         let result = run_search(board, 5);
 
-        // Mate in 1 for black should be a negative mate score
+        // Scores are relative to the side to move, so black's mate is a positive score
         let score = result.score.unwrap();
         assert!(
             score > MATE - MATE_MAX_PLIES,
@@ -759,14 +825,14 @@ mod tests {
 
     #[test]
     fn test_material_advantage_score() {
-        // Black is up a rook
+        // Black is up a bishop
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK1NR w KQkq - 0 1";
         let board = parse_fen(fen);
 
         let result = run_search(board, 3);
 
         let score = result.score.unwrap();
-        // Black is up a rook (525 points), score should be significantly positive
+        // Scores are relative to the side to move, so white's score should be clearly negative
         assert!(
             score < -300,
             "Black should have significant advantage, got {}",
@@ -803,6 +869,43 @@ mod tests {
 
         // Should return 0 for draw by 50-move rule
         assert_eq!(result.score, Some(0));
+    }
+
+    #[test]
+    fn test_tt_mate_score_round_trip() {
+        // A mate found 5 plies below a node stored at ply 3 must read back as mate in 5 from a
+        // node probed at ply 7
+        let stored = score_to_tt(MATE - 8, 3);
+        assert_eq!(stored, MATE - 5);
+        assert_eq!(score_from_tt(stored, 7), MATE - 12);
+
+        let stored = score_to_tt(-MATE + 8, 3);
+        assert_eq!(score_from_tt(stored, 7), -MATE + 12);
+
+        assert_eq!(score_from_tt(score_to_tt(42, 9), 2), 42);
+    }
+
+    #[test]
+    fn test_search_with_reused_transposition_table() {
+        // A second search of the same position with a filled transposition table must still
+        // return a best move
+        let board = parse_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
+
+        let mut tt = vec![None; TRANSPOSITION_TABLE_LENGTH];
+
+        for _ in 0..2 {
+            let mut searcher = Searcher {
+                nodes: 0,
+                searching: Arc::new(AtomicBool::new(true)),
+                max_depth: Some(5),
+                debug: Arc::new(AtomicBool::new(false)),
+                best_root_move: None,
+            };
+
+            let result = searcher.search_impl(board.clone(), &mut Vec::new(), &mut tt);
+
+            assert!(result.best_move.is_some());
+        }
     }
 
     #[test]
